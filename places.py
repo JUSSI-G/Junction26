@@ -12,18 +12,26 @@ How a title becomes a place (two API steps, both 50 titles/ids per request, made
      wbgetentities&sites=fiwiki&redirects=yes reported redirect titles as missing, so it is not used
      for this step.
   2. wikidata.org wbgetentities&ids=...&props=claims: P625 (coordinates, Earth only),
-     P31 (instance of -> `kind`, as its English label) and P276 (location, for page_place).
+     P31 (instance of, as English labels) and P276 (location, for page_place).
 
 places.tsv columns: title (as linked), resolved (fi.wikipedia title after redirects), qid, lat,
-lon, kind, p276. Empty qid = no page or no Wikidata item; empty lat = no coordinates.
+lon, kind (first P31 label), kinds (all P31 labels, |-separated), p276. Empty qid = no page or no
+Wikidata item; empty lat = no coordinates.
+
+Resumable: titles already in places.tsv are skipped and results are appended every 250 titles,
+so a killed run loses at most one chunk. Rerun the same command to continue.
+
+`place` gets only places whose kinds pass the whitelist in kinds.py (category, is_country), plus
+the articles' own locations (category 'own_location' when not whitelisted).
 """
-import csv, gzip, json, os, time, urllib.parse, urllib.request
+import csv, gzip, io, json, os, time, urllib.parse, urllib.request
 from collections import defaultdict
 from common import connect, ROOT
 from links import extract
+from kinds import classify, is_country
 
 CACHE = os.path.join(ROOT, "data", "places.tsv")
-FIELDS = ["title", "resolved", "qid", "lat", "lon", "kind", "p276"]
+FIELDS = ["title", "resolved", "qid", "lat", "lon", "kind", "kinds", "p276"]
 USER_AGENT = ("RewrittenJunction2026/0.1 (Junction 2026 hackathon: map of how Finnish Wikipedia "
               "wrote Finland's history; https://github.com/JUSSI-G/Junction26)")
 EARTH = "http://www.wikidata.org/entity/Q2"
@@ -107,10 +115,13 @@ def entities(qids, sitelinks=False):
         coord = first_value(claims, "P625")
         if coord and coord.get("globe", EARTH) != EARTH:
             coord = None                                 # coordinates on the Moon etc.
-        p31, p276 = first_value(claims, "P31"), first_value(claims, "P276")
+        p276 = first_value(claims, "P276")
+        p31s = [s["mainsnak"]["datavalue"]["value"]["id"] for s in claims.get("P31", [])
+                if isinstance(s.get("mainsnak", {}).get("datavalue", {}).get("value"), dict)]
         out[q] = {"lat": coord["latitude"] if coord else None,
                   "lon": coord["longitude"] if coord else None,
-                  "p31": p31["id"] if isinstance(p31, dict) else None,
+                  "p31": p31s[0] if p31s else None,
+                  "p31s": p31s,
                   "p276": p276["id"] if isinstance(p276, dict) else None,
                   "fititle": e.get("sitelinks", {}).get("fiwiki", {}).get("title")}
     return out
@@ -130,10 +141,46 @@ def chunks(items, n=50):
 
 
 def load_cache():
+    """Read places.tsv. A half-written last line (run killed mid-write) is dropped: those titles
+    are simply looked up again."""
     if not os.path.exists(CACHE):
         return {}
     with open(CACHE, encoding="utf-8", newline="") as f:
-        return {r["title"]: r for r in csv.DictReader(f, delimiter="\t")}
+        content = f.read()
+    if not content.endswith("\n"):                      # killed mid-write: drop the partial line
+        content = content[:content.rfind("\n") + 1]
+        with open(CACHE, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+    reader = csv.DictReader(io.StringIO(content, newline=""), delimiter="\t")
+    old_format = "kinds" not in reader.fieldnames
+    rows = {r["title"]: r for r in reader if r.get("p276") is not None}
+    if old_format:                                      # cache from before the kinds column
+        backfill_kinds(rows)
+    return rows
+
+
+def backfill_kinds(rows):
+    """One-off migration: fetch all P31 labels for cached places with coordinates, rewrite file."""
+    need = [r for r in rows.values() if r["lat"]]
+    print(f"Backfilling all P31 kinds for {len(need)} cached places", flush=True)
+    info = {}
+    for c in chunks(sorted({r["qid"] for r in need})):
+        info.update(entities(c))
+    fetch_labels({p for i in info.values() for p in i["p31s"]})
+    for r in rows.values():
+        r["kinds"] = "|".join(kind_label.get(p, p) for p in info.get(r["qid"], {}).get("p31s", [])) \
+            if r["lat"] else ""
+    tmp = CACHE + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, FIELDS, delimiter="\t", lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows.values())
+    os.replace(tmp, CACHE)
+
+
+def fetch_labels(qids):
+    for c in chunks(sorted(set(qids) - kind_label.keys())):
+        kind_label.update(labels(c))
 
 
 def append_cache(rows):
@@ -161,18 +208,16 @@ def lookup(titles, cache):
         info = {}
         for c in chunks(qids):
             info.update(entities(c))
-        new_kinds = sorted({i["p31"] for i in info.values() if i["p31"] and i["lat"] is not None}
-                           - kind_label.keys())
-        for c in chunks(new_kinds):
-            kind_label.update(labels(c))
+        fetch_labels({p for i in info.values() if i["lat"] is not None for p in i["p31s"]})
         rows = []
         for t in part:
             r, q = resolved[t]
             i = info.get(q, {})
+            has = i.get("lat") is not None
             rows.append({"title": t, "resolved": r, "qid": q,
-                         "lat": "" if i.get("lat") is None else i["lat"],
-                         "lon": "" if i.get("lon") is None else i["lon"],
-                         "kind": kind_label.get(i.get("p31"), "") if i.get("lat") is not None else "",
+                         "lat": i["lat"] if has else "", "lon": i["lon"] if has else "",
+                         "kind": kind_label.get(i.get("p31"), "") if has else "",
+                         "kinds": "|".join(kind_label.get(p, p) for p in i["p31s"]) if has else "",
                          "p276": i.get("p276") or ""})
         append_cache(rows)
         cache.update({r["title"]: r for r in rows})
@@ -237,12 +282,10 @@ for page_id, q in need_p276.items():
         continue
     t = i["fititle"]
     if t not in cache:                                  # location not linked anywhere: cache it
-        kind = ""
-        if i["p31"]:
-            kind_label.update(labels([i["p31"]]) if i["p31"] not in kind_label else {})
-            kind = kind_label.get(i["p31"], "")
+        fetch_labels(i["p31s"])
         row = {"title": t, "resolved": t, "qid": q, "lat": i["lat"], "lon": i["lon"],
-               "kind": kind, "p276": ""}
+               "kind": kind_label.get(i["p31"], "") if i["p31"] else "",
+               "kinds": "|".join(kind_label.get(p, p) for p in i["p31s"]), "p276": ""}
         extra_rows.append(row)
         cache[t] = row
     own[page_id], method[page_id] = cache[t]["resolved"], "P276"
@@ -250,15 +293,26 @@ if extra_rows:
     append_cache(extra_rows)
 
 # ---------------------------------------------------------------- 4. fill place and page_place
-places = {}                                             # resolved title -> row
+coords = {}                                             # resolved title -> row, any kind
 for t in set(ever) | set(own.values()):
     r = cache.get(t)
     if r and r["lat"]:
-        places.setdefault(r["resolved"], r)
+        coords.setdefault(r["resolved"], r)
+places, excluded = {}, defaultdict(int)                 # resolved title -> (row, category, kind)
+own_titles = set(own.values())
+for t, r in coords.items():
+    category, label = classify([k for k in (r["kinds"] or r["kind"] or "").split("|") if k])
+    if category:
+        places[t] = (r, category, label)
+    elif t in own_titles:                               # e.g. Turun palo, Isoviha: keep as origin
+        places[t] = (r, "own_location", r["kind"])
+    else:
+        excluded[r["kind"] or "(no P31)"] += 1
 cur.execute("DELETE FROM place")
-cur.executemany("INSERT INTO place (title, qid, lat, lon, kind) VALUES (?, ?, ?, ?, ?)",
-                [(t, r["qid"], float(r["lat"]), float(r["lon"]), r["kind"][:50] or None)
-                 for t, r in places.items()])
+cur.executemany("INSERT INTO place (title, qid, lat, lon, kind, category, is_country) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(t, r["qid"], float(r["lat"]), float(r["lon"]), (kind or "")[:50] or None,
+                  category, is_country(category)) for t, (r, category, kind) in places.items()])
 cur.execute("DELETE FROM page_place")
 cur.executemany("INSERT INTO page_place (page_id, place_title) VALUES (?, ?)", list(own.items()))
 con.commit()
@@ -269,7 +323,13 @@ with_item = sum(1 for t in ever if cache[t]["qid"])
 with_coord = sum(1 for t in ever if cache[t]["lat"])
 print(f"\nLink targets: {len(ever)} distinct; {with_page} are existing fi.wikipedia pages, "
       f"{with_item} have a Wikidata item, {with_coord} have coordinates "
-      f"-> {len(places)} distinct places after merging redirects (place table).")
+      f"-> {len(coords)} distinct after merging redirects.")
+by_cat = defaultdict(int)
+for _, category, _ in places.values():
+    by_cat[category] += 1
+print(f"Kind whitelist: {len(places)} kept in `place` "
+      f"({', '.join(f'{c} {n}' for c, n in sorted(by_cat.items(), key=lambda x: -x[1]))}), "
+      f"{sum(excluded.values())} excluded.")
 print(f"Lookups took {t_lookup:.0f} s, {requests_made} API requests.")
 
 by_method = defaultdict(list)
@@ -283,13 +343,14 @@ for page_id, p in sorted(own.items(), key=lambda x: article_title[x[0]]):
 
 linking_ever, linking_now = defaultdict(set), defaultdict(set)
 for t, pages in ever.items():
-    if cache[t]["lat"]:
+    if cache[t]["lat"] and cache[t]["resolved"] in places \
+            and places[cache[t]["resolved"]][1] != "own_location":
         linking_ever[cache[t]["resolved"]] |= pages
         linking_now[cache[t]["resolved"]] |= now.get(t, set())
 print("\nTop 30 places by number of linking articles (ever / in current versions):")
 top = sorted(linking_ever, key=lambda p: (-len(linking_ever[p]), -len(linking_now[p]), p))[:30]
 for rank, p in enumerate(top, 1):
     print(f"  {rank:2}. {p:<32} {len(linking_ever[p]):3} / {len(linking_now[p]):3}   "
-          f"{places[p]['kind']}")
+          f"{places[p][1]}: {places[p][2]}")
 print(f"\nTotal {time.time() - t_start:.0f} s")
 con.close()

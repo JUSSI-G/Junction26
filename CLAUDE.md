@@ -170,8 +170,12 @@ linking the place. controversy = reverts that year. rewritten = links added + re
 5. **Globe frontend**: heatmap + arcs + slider + play, then click → side panel, then the SQL drawer.
 6. **Scale**: load all ~19,750 articles, rerun 2–4, measure load time and query times. Write the numbers in
    `NOTES.md`.
-7. Stretch: controversy view with revert chains; bitemporal view (event dates as an application-time period);
-   LLM one-line explanations of edit wars (Verda).
+7. **Gemma on Verda (side challenges: Verda Compute Track + Best Use of Gemma).** Batch job: for every
+   revert and every removed/added place link, give Gemma the diff + edit summary, store a one-line reason and
+   a label (vandalism / rename / factual change / framing dispute / cleanup) in a `change_reason` table.
+   First test the prompt on 10 diffs from page 1150 (check Finnish quality; compare a small and a larger
+   Gemma). Then run it over everything as a Verda batch job. Show the reasons in arc tooltips and the
+   controversy view, labelled "explained by Gemma". Log model, run time and cost in `NOTES.md`.
 
 ## Working rules
 

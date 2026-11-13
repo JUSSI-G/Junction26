@@ -35,13 +35,16 @@ CREATE TABLE IF NOT EXISTS article_list (
   why      VARCHAR(255)
 ) CHARACTER SET utf8mb4;
 
--- 2. Places: every link target that has coordinates (from Wikidata P625).
+-- 2. Places: link targets with coordinates (Wikidata P625) whose kind passes the whitelist in
+--    kinds.py, plus articles' own locations (category 'own_location' when not whitelisted).
 CREATE TABLE IF NOT EXISTS place (
-  title  VARCHAR(255) PRIMARY KEY,
-  qid    VARCHAR(20),
-  lat    DOUBLE,
-  lon    DOUBLE,
-  kind   VARCHAR(50)
+  title      VARCHAR(255) PRIMARY KEY,
+  qid        VARCHAR(20),
+  lat        DOUBLE,
+  lon        DOUBLE,
+  kind       VARCHAR(50),                     -- the P31 label that matched the whitelist
+  category   VARCHAR(20),                     -- country/battle/treaty/fortress/settlement/region/island/water
+  is_country BOOL NOT NULL DEFAULT 0          -- drawn as a polygon, not a heat point
 ) CHARACTER SET utf8mb4;
 
 -- 3. The article's own location: its own P625, else its event location (P276 -> P625).

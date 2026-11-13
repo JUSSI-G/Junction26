@@ -128,3 +128,106 @@ former municipality 42, city 37, village 32, river 28, historical country 23, sh
   P276; the arcs from it will start in central Finland. Fine for the globe, but Tampere will only
   flare through linking articles, not as the article's own location.
 - Full scale (stage 6): 169,720 targets ≈ 7,000 serial requests ≈ 1.5–2 h at the measured rate.
+
+## Stage 2b: place kinds, is_country, resumable --all (2026-11-14)
+
+- **`kinds` column in `data/places.tsv`:** all P31 labels (|-separated), not just the first. The first
+  label alone was too narrow for a whitelist (Rooma = "border city", Moskova = "capital of Russia",
+  Pariisi = "commune of France"). The old cache was migrated in place: 49 requests backfilled the
+  1,705 cached places with coordinates.
+- **Whitelist (`kinds.py`)**: a place is kept when any P31 label matches a group (tried in order):
+  country, battle (battle/siege), treaty (treaty/armistice), fortress (fortress/castle/fort/
+  fortification/stronghold/kremlin/defence line), settlement (municipality/town/city/village/
+  settlement/posyolok/urban area/… minus "city hall", "city fire", "old town", districts,
+  neighbourhoods), region (region/province/county/oblast/governorate/län/territory/isthmus/
+  peninsula/federal subjects…), island (island/archipelago), water (river/lake).
+  `python kinds.py` prints what is included and excluded.
+- **`place` columns added:** `category` and `is_country` (category = country: sovereign and historical
+  countries, empires, kingdoms; drawn as polygons later).
+  `ALTER TABLE place ADD category, is_country` was run by hand; schema.sql is updated.
+- Articles' own locations that fail the whitelist (Turun palo, Isoviha, Anjalan liitto, Porkkalan
+  vuokra-alue, Ahvenanmaan kysymys) stay in `place` with `category='own_location'`, so their arcs
+  have an origin. They are not used as link targets.
+
+Result (50 dev articles): 1,527 distinct places with coordinates → **923 in `place`**:
+settlement 525 · country 123 · region 116 · battle 65 · water 45 · fortress 19 · island 15 ·
+treaty 10 · own_location 5. **604 excluded** (293 kinds), largest: shopping center 22,
+neighborhood 17, church building 16, building 11, railway station 11, street 10, Helsinki
+neighbourhood 9, university 8+6, museum 8, prisoner-of-war camp 7, sculpture 7, memorial 7.
+Bugs fixed on the way: "governorate of the Russian Empire" matched *empire* → country (now region);
+"provinces of Sweden" (plural) was excluded.
+
+**Resumable `places.py --all`:** titles already in places.tsv are skipped; results are appended every
+250 titles; a half-written last line from a killed run is dropped on start (tested). Estimate for all
+19,742 articles: about 157k new titles at about 1,000 titles / 36 s ≈ **1.5–2.5 h** plus lag waits;
+link extraction over 862k versions adds about 2.5 min per start.
+
+Overnight command (PowerShell, from the project folder; `cmd /c` keeps the log UTF-8 — PowerShell 5.1
+`>` would write UTF-16):
+```powershell
+cmd /c ".venv\Scripts\python -u places.py --all >> data\places_all.log 2>&1"
+```
+If it stops, run the same command again. It rewrites `place` and `page_place` for all articles at
+the end, so rerun `place_links.py` afterwards.
+
+## Stage 3: place links (2026-11-14) — 50 dev articles
+
+Run: `.venv\Scripts\python place_links.py` (`--all` for every article). Drops and recreates
+`place_link` each run (a plain DELETE would leave the history rows). **54 s** for 31,848 versions.
+
+- **Lifetimes:** a row (page, place) lives from the first kept version that links the place to the
+  first later kept version that doesn't; times are Wikipedia's (`system_versioning_insert_history`).
+  Links still in the current version are current rows. `mentions` = the most times the place was
+  linked in one version during that lifetime (a new row per mention change would count as "added").
+- **Noise filter:** a revert = version j with the same sha1 as an earlier version k ≠ j−1. It undid
+  k+1 … j−1; if j came within 48 h of k+1, those versions are skipped. Slower reverts are kept (real
+  disputes). Skipped versions are listed in `data/noise_skipped.tsv`.
+- **3,035 reverts** detected; the filter skipped **3,756 versions (11.8 %)**.
+- `place_link`: **2,487 rows** (history + current), 1,790 current; 918 target places.
+
+Links added / removed per year (added in brackets: by an article's first version, i.e. article creation):
+
+| year | added | (new article) | removed |
+|---|---|---|---|
+| 2003 | 12 | 7 | 0 |
+| 2004 | 119 | 34 | 15 |
+| 2005 | 228 | 22 | 43 |
+| 2006 | 205 | 1 | 43 |
+| 2007 | 233 | 0 | 44 |
+| 2008 | 145 | 1 | 49 |
+| 2009 | 82 | 3 | 80 |
+| 2010 | 80 | 0 | 15 |
+| 2011 | 160 | 7 | 79 |
+| 2012 | 90 | 0 | 35 |
+| 2013 | 30 | 0 | 10 |
+| 2014 | 109 | 47 | 28 |
+| 2015 | 50 | 0 | 52 |
+| 2016 | 65 | 0 | 28 |
+| 2017 | 64 | 11 | 7 |
+| 2018 | 179 | 5 | 4 |
+| 2019 | 39 | 0 | 6 |
+| 2020 | 113 | 12 | 51 |
+| 2021 | 114 | 0 | 10 |
+| 2022 | 46 | 0 | 18 |
+| 2023 | 101 | 0 | 10 |
+| 2024 | 47 | 0 | 21 |
+| 2025 | 110 | 0 | 19 |
+| 2026 | 66 | 0 | 30 |
+
+**Sanity check, Suomen sisällissota (page 1150)**, places linked `FOR SYSTEM_TIME AS OF`:
+- **2005-01-01: 4** — Helsinki, Tampereen taistelu, Vaasa, Neuvosto-Venäjä (the article was ~7 KB).
+- **2010-01-01: 64** — +60, e.g. Brest-Litovskin rauha, Saksan keisarikunta, Viipuri, Lahti,
+  Tampere, Suomenlinna, Vilppula, Viipurin taistelu, Antrean taistelut.
+- **2018-01-01: 100** — +40 (Kämärän taistelu, Varkauden taistelu, Syrjäntaan taistelu, Oulu, Pori,
+  Ukraina, Neuvostoliitto …), −4 (Tampere, Suomenlinna, Pihkova, Antrean taistelut).
+- **now: 104** — +4 (Weimarin tasavalta, Japanin keisarikunta, Pohjoismaat, Venäjän SFNT).
+
+Demo find: *Tampere* and *Suomenlinna* were unlinked on **2014-02-11** by the edit "Linkit
+vankileireihin" (links to the prison camps). The links most likely moved to the prison-camp articles,
+which the kind whitelist currently excludes ("prisoner-of-war camp", "concentration camp").
+
+### Open
+- Add prison camps to the whitelist? They are central to the 1918 story (Hennalan, Tampereen,
+  Suomenlinnan vankileiri …), and without them the globe shows the 2014 rewrite only as a removal.
+- Self-links (an article linking its own location, e.g. sisällissota → Suomi) are kept in
+  `place_link`; filter `from = to` in the arcs API.
