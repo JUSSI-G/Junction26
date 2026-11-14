@@ -133,6 +133,16 @@ Code also downgrades contradiction → partial when `same_specific_fact` is fals
 - Note: the 30 pairs informed the new rules, so they are not a clean test any more. **Held-out set:
   20 new pairs** in `scoring/eval/pairs_test.csv` (stratified by v2 label, excluding the 30, Gemma's
   label hidden).
+- **Held-out result (20 pairs, labelled after v2 was frozen):** v2 accuracy **65 %** (13/20; 70 % accepting
+  the labeller's second choice) vs v1 50 % (10/20). v2 per label: contradiction precision **2/3**,
+  recall 2/3; same 4/5 and 4/5; partial 6/7, recall 6/11; framing precision **1/5** (the new weak
+  spot: added detail or reasoning read as framing). v1 never said "same" (recall 0/5).
+  The sample is stratified by v2's labels, so v2's precision figures are the fairer comparison.
+- **Contradiction precision, v2, all 50 labelled pairs: 4/6 (67 %)**, still under the 75 % target.
+  Both false ones: two different elections read as one (37 % vs 62.7 %) and battle deaths vs all deaths.
+  Missed: the Tampere Red Guard losses (500–800 vs 1,000–1,500 killed), which v2 called partial.
+- 3 of the 20 held-out pairs are **misaligned** (unrelated sentences paired by embedding); v2 labelled
+  all three partial. That is a matching problem (threshold / mutual-best), not a Gemma one.
 - Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
   contradiction; added "first ask whether both could be true at the same time". It still does: noted.
 
