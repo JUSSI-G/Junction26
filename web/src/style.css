@@ -190,3 +190,74 @@ body.panel-open #timeline { right: calc(min(420px, 100vw) + 24px); }
 body.panel-open #metrics, body.panel-open #story-card { left: calc((100vw - min(420px, 100vw)) / 2); }
 #panel { padding-bottom: 24px; }
 @media (max-width: 1200px) { body.panel-open #metrics { display: none; } }
+
+/* ---------------------------------------------------------------- stage 5b: readable in 5 seconds */
+#top {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 6; width: min(640px, 92vw);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+}
+#top > * { pointer-events: auto; }
+#metrics { position: static; transform: none; }
+#metrics button { padding: 7px 12px; white-space: nowrap; }
+#metric-hint { margin: 0; font-size: 12px; color: var(--ink-2); text-align: center; text-shadow: 0 1px 3px #000; }
+#story-card { position: static; transform: none; width: 100%; }
+#caption {
+  width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 9px 14px; backdrop-filter: blur(8px); margin-top: 2px;
+}
+#caption p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+#caption-totals { font-size: 14.5px !important; color: var(--ink) !important; }
+#caption-totals b { font-variant-numeric: tabular-nums; }
+#caption a { color: var(--ink); text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); }
+#caption .k { color: var(--ink-3); }
+#caption-reason { margin-top: 4px !important; color: var(--ink) !important; }
+.gemma {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #ffd58a;
+  border: 1px solid rgba(255, 176, 32, 0.45); border-radius: 999px; padding: 1px 7px; margin-right: 6px;
+}
+.s-added { color: var(--added); font-weight: 600; }
+.s-removed { color: var(--removed); font-weight: 600; }
+body.panel-open #top { left: calc((100vw - min(420px, 100vw)) / 2); width: min(600px, calc(100vw - min(420px, 100vw) - 420px)); }
+body.panel-open #metrics, body.panel-open #story-card { left: auto; }
+body.panel-open #metric-hint { display: none; }
+body.story #metrics, body.story #metric-hint { display: none; }
+
+/* legend */
+#legend { width: 318px; font-size: 12px; }
+#legend b { color: var(--ink); font-weight: 600; }
+.legend-row { align-items: center; line-height: 1.3; }
+.dots { width: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; }
+.dots i { display: block; border-radius: 50%; background: var(--accent); }
+.dots i:nth-child(1) { width: 5px; height: 5px; background: #a8690f; }
+.dots i:nth-child(2) { width: 10px; height: 10px; }
+.dots i:nth-child(3) { width: 16px; height: 16px; background: #ffe3a0; }
+.legend-toggle {
+  display: flex; gap: 7px; align-items: baseline; margin-top: 8px; padding-top: 8px; color: var(--ink);
+  border-top: 1px solid var(--border); cursor: pointer; line-height: 1.3;
+}
+.legend-toggle input { accent-color: var(--accent); margin: 0; transform: translateY(2px); }
+.legend-toggle span { color: var(--ink-3); }
+#sql-drawer { left: 358px; }
+#sql-content { width: min(640px, calc(100vw - 386px)); }
+
+/* English names */
+.en { color: var(--ink-3); font-weight: 400; }
+.place-label .en { color: #aeb8cc; font-size: 10.5px; }
+.tip .en { color: var(--ink-2); }
+
+/* landing */
+#landing {
+  position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(5, 7, 13, 0.86), rgba(5, 7, 13, 0.95));
+}
+.landing-card { width: min(620px, 92vw); text-align: center; padding: 8px; }
+.landing-card h2 { margin: 0 0 14px; font-size: 38px; line-height: 1.12; font-weight: 680; letter-spacing: -0.025em; }
+.landing-card p { margin: 0 auto 24px; font-size: 16.5px; line-height: 1.55; color: #c9d1e0; max-width: 560px; }
+.btn.big { display: block; margin: 0 auto 12px; font-size: 18px; padding: 14px 28px; border-radius: 12px; font-weight: 600; }
+.landing-foot { margin-top: 26px !important; font-size: 12.5px !important; color: var(--ink-3) !important; }
+.landing-foot code { font-family: ui-monospace, Consolas, monospace; color: #ffd58a; }
+
+@media (max-width: 1100px) { #brand p { display: none; } #top { top: 64px; } }
+@media (max-width: 900px) { #legend { display: block; width: auto; right: 24px; } #sql-drawer { display: none; } }
+
+body.panel-open #brand p, body.story #brand p { display: none; }

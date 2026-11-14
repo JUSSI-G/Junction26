@@ -11,14 +11,16 @@ const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..
 mkdirSync(OUT, { recursive: true });
 
 const shots = [
-  { name: '2005-knowledge', url: '/?year=2005&metric=knowledge' },
-  { name: '2014-rewritten', url: '/?year=2014&metric=rewritten' },
-  { name: '2018-knowledge', url: '/?year=2018&metric=knowledge' },
-  { name: '2007-controversy-sql', url: '/?year=2007&metric=controversy&sql=1' },
-  { name: 'place-tampere-2018', url: '/?year=2018&metric=knowledge&place=Tampere' },
-  { name: 'story-1918-2005', url: '/?story=1&year=2005' },
+  { name: 'landing', url: '/' },
+  { name: '2005', url: '/?year=2005' },
+  { name: '2014', url: '/?year=2014' },
+  { name: '2018', url: '/?year=2018' },
+  { name: '2018-all-links', url: '/?year=2018&all=1' },
+  { name: '2007-where-editors-fought', url: '/?year=2007&metric=controversy' },
+  { name: '2013-what-was-rewritten', url: '/?year=2013&metric=rewritten' },
   { name: 'story-1918-2014', url: '/?story=1&year=2014' },
-  { name: 'story-1918-2018', url: '/?story=1&year=2018' },
+  { name: 'place-tampere-2018', url: '/?year=2018&place=Tampere' },
+  { name: 'sql-drawer', url: '/?year=2014&sql=arcs' },
 ];
 const only = process.argv.slice(2);
 

@@ -13,32 +13,40 @@
   <header id="brand">
     <h1>Rewritten</h1>
     <p>How Finnish Wikipedia told Finland's history, 2004–2026</p>
-    <button id="story-btn" class="btn accent" title="Follow one article: Suomen sisällissota">▶ Story: 1918</button>
+    <button id="story-btn" class="btn accent">▶ Watch: the 1918 civil war</button>
   </header>
 
-  <nav id="metrics" role="tablist" aria-label="Heat metric">
-    <button data-metric="knowledge" title="Links pointing to the place on 1 Jan, plus KB written about it">Knowledge</button>
-    <button data-metric="activity" title="Edits that year to articles at or linking the place">Activity</button>
-    <button data-metric="controversy" title="Reverts that year in those articles">Controversy</button>
-    <button data-metric="rewritten" title="Place links added + removed that year">Rewritten</button>
-  </nav>
+  <div id="top">
+    <nav id="metrics" role="tablist" aria-label="What the map shows">
+      <button data-metric="knowledge">How much is written</button>
+      <button data-metric="activity">How much was edited</button>
+      <button data-metric="controversy">Where editors fought</button>
+      <button data-metric="rewritten">What was rewritten</button>
+    </nav>
+    <p id="metric-hint"></p>
 
-  <div id="story-card" hidden>
-    <div class="story-head"><span id="story-title">1918 · Suomen sisällissota</span><button id="story-exit" class="btn small">Exit story</button></div>
-    <p id="story-text"></p>
-    <p id="story-counts"></p>
-    <div id="story-dots"></div>
+    <div id="caption">
+      <p id="caption-totals"></p>
+      <p id="caption-biggest"></p>
+      <p id="caption-reason" hidden></p>
+    </div>
+
+    <div id="story-card" hidden>
+      <div class="story-head"><span id="story-title">One article · Suomen sisällissota (the Finnish Civil War of 1918)</span><button id="story-exit" class="btn small">Exit story</button></div>
+      <p id="story-text"></p>
+      <p id="story-counts"></p>
+      <div id="story-dots"></div>
+    </div>
   </div>
 
   <aside id="legend">
-    <div class="legend-title" id="legend-metric">Knowledge</div>
-    <div class="legend-row"><span class="ramp ramp-point"></span><span>places (low → high)</span></div>
-    <div class="legend-row"><span class="ramp ramp-country"></span><span>countries (low → high)</span></div>
-    <div class="legend-title">Place links that year</div>
-    <div class="legend-row"><span class="line added"></span><span>+ added</span><b id="n-added">0</b></div>
-    <div class="legend-row"><span class="line removed"></span><span>− removed</span><b id="n-removed">0</b></div>
-    <div class="legend-row"><span class="line same"></span><span>unchanged</span><b id="n-same">0</b></div>
-    <div class="legend-note">Dimmer arc = origin inferred from the article's most-linked place</div>
+    <div class="legend-title">How to read the map</div>
+    <div class="legend-row"><span class="dots"><i></i><i></i><i></i></span><span>Place: bigger = <span id="legend-metric">more written about it</span></span></div>
+    <div class="legend-row"><span class="ramp ramp-country"></span><span>Country: brighter = more</span></div>
+    <div class="legend-row"><span class="line added"></span><span>Article <b>added</b> a link to a place</span></div>
+    <div class="legend-row"><span class="line removed"></span><span>Article <b>removed</b> a link</span></div>
+    <div class="legend-row"><span class="line same"></span><span>Link kept all year</span></div>
+    <label class="legend-toggle"><input type="checkbox" id="show-all"> <span style="color:var(--ink)">Show all links</span> <span>(kept links, guessed arc starts)</span></label>
   </aside>
 
   <aside id="panel" hidden>
@@ -47,11 +55,12 @@
   </aside>
 
   <section id="sql-drawer" class="closed">
-    <button id="sql-toggle" class="btn small">SQL <span id="sql-ms"></span></button>
+    <button id="sql-toggle" class="btn small" title="The MariaDB queries behind this view">SQL <span id="sql-ms"></span></button>
     <div id="sql-content">
       <div id="sql-tabs">
         <button data-tab="heat" class="on">Heat</button>
         <button data-tab="arcs">Arcs</button>
+        <button data-tab="caption">Caption</button>
         <button data-tab="panel">Panel</button>
       </div>
       <pre id="sql-text"></pre>
@@ -67,6 +76,18 @@
       <div id="preload"><div id="preload-bar"></div></div>
     </div>
   </footer>
+
+  <div id="landing" hidden>
+    <div class="landing-card">
+      <h2>Rewritten: how Finnish Wikipedia told its history</h2>
+      <p>Every dot is a place that Finnish Wikipedia's 19,742 history articles write about. Move through
+        2004–2026 and watch the map of Finland's history being written, argued over and rewritten:
+        each arc is an article adding or removing a link to a place.</p>
+      <button id="landing-story" class="btn accent big">▶ Watch: the 1918 civil war</button>
+      <button id="landing-explore" class="btn">Explore freely</button>
+      <p class="landing-foot">862,076 article versions in MariaDB system-versioned tables · every view is a <code>FOR SYSTEM_TIME</code> query</p>
+    </div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

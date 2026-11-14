@@ -6,10 +6,10 @@ const YEARS = Array.from({ length: 23 }, (_, i) => 2004 + i);
 const STORY_PAGE = 1150;
 const STORY = [
   { year: 2005, text: 'A young article grows fast. Editors link the first towns and battlefields of the 1918 civil war.' },
-  { year: 2010, text: 'Six years in, the article links 64 places. The war now reaches Brest-Litovsk, Berlin and St Petersburg.' },
+  { year: 2010, text: 'Six years in, the article links 65 places. The war now reaches Brest-Litovsk, Berlin and St Petersburg.' },
   { year: 2014, text: 'One edit on 11 Feb 2014 moves the story from towns to prison camps: Tampere and Suomenlinna out, five camps in.' },
-  { year: 2018, text: 'The centenary. A hundred places are linked, and small battles have articles of their own.' },
-  { year: 2026, text: 'Today: 104 places, and the story is still being rewritten.' },
+  { year: 2018, text: 'The centenary. The article links 107 places, and small battles have articles of their own.' },
+  { year: 2026, text: 'Today: 112 places, and the story is still being rewritten.' },
 ];
 const params = new URLSearchParams(location.search);
 const state = {
@@ -19,7 +19,21 @@ const state = {
   story: null,          // index into STORY, or null
   sqlTab: 'heat',
   panelSql: null,
+  showAll: params.get('all') === '1',   // also draw unchanged links and arcs with an inferred origin
 };
+const METRIC = {
+  knowledge: { hint: 'Links pointing to each place on 1 January, plus the size of the articles about it.',
+               size: 'more written about it', unit: 'links + KB written' },
+  activity: { hint: 'Edits saved that year to the articles about, or linking, each place.',
+              size: 'more edits that year', unit: 'edits' },
+  controversy: { hint: 'Edits that were undone (reverted) that year in those articles.',
+                 size: 'more edits undone that year', unit: 'reverts' },
+  rewritten: { hint: 'Links to each place that articles added or removed that year.',
+               size: 'more links added or removed', unit: 'link changes' },
+};
+// Finnish title, with the English Wikidata label when it says something different.
+const en = (d) => (d.en_label && d.en_label.toLowerCase() !== d.title.toLowerCase() ? d.en_label : '');
+const both = (d) => `${esc(d.title)}${en(d) ? ` <span class="en">${esc(en(d))}</span>` : ''}`;
 const cache = { heat: {}, arcs: {} };   // heat[metric][year], arcs[pageKey][year]
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -32,15 +46,16 @@ async function api(path) {
   return r.json();
 }
 function heatKey() { return state.metric; }
-function arcKey() { return state.story !== null ? `p${STORY_PAGE}` : 'all'; }
+function arcKey() { return state.story !== null ? `p${STORY_PAGE}` : state.showAll ? 'all' : 'changes'; }
 async function getHeat(metric, year) {
   const m = (cache.heat[metric] ||= {});
-  return (m[year] ||= api(`/api/heat?year=${year}&metric=${metric}`));
+  return (m[year] ||= api(`/api/heat?year=${year}&metric=${metric}&limit=1300`));
 }
 async function getArcs(key, year) {
   const m = (cache.arcs[key] ||= {});
-  const page = key === 'all' ? '' : `&page=${key.slice(1)}`;
-  return (m[year] ||= api(`/api/arcs?year=${year}&limit=${key === 'all' ? 500 : 2000}${page}`));
+  // changes: the 150 strongest added + 150 removed arcs. all: 90 per group, unchanged and inferred too.
+  const q = key === 'changes' ? '&limit=220' : key === 'all' ? '&all=1&limit=90' : `&page=${key.slice(1)}`;
+  return (m[year] ||= api(`/api/arcs?year=${year}${q}`));
 }
 
 // Preload every year for the current metric and arc set, a few requests at a time.
@@ -114,6 +129,7 @@ const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const ARC = { added: [61, 220, 132], removed: [255, 90, 95], same: [143, 155, 179] };
 
 // ------------------------------------------------------------------ globe
+let zoom = 1;   // marks are sized in degrees; shrink them when the camera is close
 const globe = new Globe($('globe'), { animateIn: false })
   .backgroundColor('#05070d')
   .globeImageUrl('/earth-dark.jpg')
@@ -132,9 +148,9 @@ const globe = new Globe($('globe'), { animateIn: false })
   .pointsMerge(false)
   .pointsTransitionDuration(0)
   .pointAltitude((d) => 0.007 + 0.012 * d.t)
-  .pointRadius((d) => 0.1 + 0.4 * d.t)
+  .pointRadius((d) => zoom * (0.06 + 0.42 * d.t))
   .pointColor((d) => rgba(ramp(POINT_RAMP, 0.15 + 0.85 * d.t), 0.7 + 0.28 * d.t))
-  .pointLabel((d) => `<div class="tip"><b>${esc(d.title)}</b><br><span class="k">${esc(d.kind || d.category)}</span><br>${esc(state.metric)}: <b>${fmt(d.value)}</b></div>`)
+  .pointLabel((d) => `<div class="tip"><b>${both(d)}</b><br><span class="k">${esc(d.kind || d.category)}</span><br><b>${fmt(d.value)}</b> ${METRIC[state.metric].unit} in ${state.year}<br><span class="k">click for its articles</span></div>`)
   .onPointClick((d) => openPlace(d.title))
   // place names: DOM labels (crisp, full Finnish alphabet), decluttered in render()
   .htmlLat('lat').htmlLng('lon').htmlAltitude(0.02)
@@ -142,7 +158,7 @@ const globe = new Globe($('globe'), { animateIn: false })
   .htmlElement((d) => {
     const el = document.createElement('div');
     el.className = `place-label${d.changed ? ` ${d.changed}` : ''}`;
-    el.textContent = d.title;
+    el.innerHTML = labelText(d).length > d.title.length ? both(d) : esc(d.title);
     el.onclick = () => openPlace(d.title);
     return el;
   })
@@ -156,23 +172,24 @@ const globe = new Globe($('globe'), { animateIn: false })
     const a = d.status === 'same' ? (d.origin_inferred ? 0.06 : 0.14) : (d.origin_inferred ? 0.3 : 0.95);
     return [rgba(ARC[d.status], a * 0.55), rgba(ARC[d.status], a)];
   })
-  .arcStroke((d) => (d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
-  .arcAltitudeAutoScale(0.24)
+  .arcStroke((d) => zoom * (d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
+  .arcAltitudeAutoScale(0.16)
   .arcDashLength((d) => (d.status === 'same' ? 1 : d.status === 'added' ? 0.55 : 0.25))
   .arcDashGap((d) => (d.status === 'same' ? 0 : d.status === 'added' ? 0.25 : 0.2))
   .arcDashAnimateTime((d) => (d.status === 'same' ? 0 : d.status === 'added' ? 2200 : 3600))
   .arcsTransitionDuration(0)
   .arcLabel((d) => {
-    const word = { added: '+ link added', removed: '− link removed', same: 'unchanged link' }[d.status];
-    const arts = d.articles.slice(0, 6).map((a) => esc(a.title)).join('<br>');
-    const more = d.articles.length > 6 ? `<br><span class="k">+ ${d.articles.length - 6} more</span>` : '';
+    const n = d.weight;
+    const word = { added: `+ link${n > 1 ? 's' : ''} added`, removed: `− link${n > 1 ? 's' : ''} removed`, same: 'unchanged' }[d.status];
+    const arts = d.articles.slice(0, 5).map((a) => esc(a.title)).join('<br>');
+    const more = n > 5 ? `<br><span class="k">+ ${fmt(n - Math.min(5, d.articles.length))} more</span>` : '';
     return `<div class="tip"><span class="s-${d.status}">${word}</span> in ${state.year}<br>
-      <b>${esc(d.from.title)} → ${esc(d.to.title)}</b>${d.origin_inferred ? '<br><span class="k">origin inferred</span>' : ''}
-      <br><span class="k">article${d.articles.length > 1 ? 's' : ''}:</span><br>${arts}${more}</div>`;
+      <b>${esc(d.from.title)} → ${esc(d.to.title)}</b>${d.origin_inferred ? '<br><span class="k">start of the arc is a guess: the place this article links most</span>' : ''}
+      <br><span class="k">${n > 1 ? `${fmt(n)} articles` : 'article'} about ${esc(d.from.title)}:</span><br>${arts}${more}</div>`;
   })
   .onArcClick((d) => openArticle(d.articles[0].page_id));
 
-const HOME = { lat: 59, lng: 24, altitude: 0.95 };
+const HOME = { lat: 61.2, lng: 23.5, altitude: 0.62 };
 globe.pointOfView(HOME, 0);
 globe.controls().autoRotate = false;
 window.addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
@@ -186,7 +203,9 @@ async function render() {
   $('year-big').textContent = year;
   document.querySelectorAll('#ticks span').forEach((s) => s.classList.toggle('on', +s.dataset.y === year));
   document.querySelectorAll('#metrics button').forEach((b) => b.classList.toggle('on', b.dataset.metric === metric));
-  $('legend-metric').textContent = metric[0].toUpperCase() + metric.slice(1);
+  $('legend-metric').textContent = METRIC[metric].size;
+  $('metric-hint').textContent = METRIC[metric].hint;
+  renderCaption();
 
   const [heat, arcs] = await Promise.all([getHeat(metric, year), getArcs(arcKey(), year)]);
   if (seq !== renderSeq) return;
@@ -201,38 +220,72 @@ async function render() {
     f.__places = t ? t.places.sort((a, b) => b.value - a.value) : null;
     f.__top = t ? f.__places[0] : null;
     f.__tip = t
-      ? `<div class="tip"><b>${esc(f.properties.name)}</b><br>${esc(metric)}: <b>${fmt(t.value)}</b><br><span class="k">${t.places.slice(0, 5).map((p) => `${esc(p.title)} ${fmt(p.value)}`).join('<br>')}</span></div>`
+      ? `<div class="tip"><b>${esc(f.properties.name)}</b><br><b>${fmt(t.value)}</b> ${METRIC[metric].unit} in ${year}<br><span class="k">${t.places.slice(0, 5).map((p) => `${esc(p.title)} ${fmt(p.value)}`).join('<br>')}</span></div>`
       : '';
   }
   globe.polygonCapColor((f) => (f.__t === null ? 'rgba(20,27,42,0.72)' : rgba(ramp(COUNTRY_RAMP, f.__t), 0.62 + 0.2 * f.__t)));
   globe.polygonsData(countryFeatures);
 
   // places (top 1500 keeps the scene light at full scale)
-  const points = heat.data.filter((d) => !polygonQid(d)).slice(0, 1500)
+  const points = heat.data.filter((d) => !polygonQid(d)).sort((a, b) => b.value - a.value).slice(0, 700)
     .map((d) => ({ ...d, t: Math.sqrt(d.value / mx.point) }));
   globe.pointsData(points);
   let labels = points;
 
   // arcs
-  globe.arcsData(arcs.data);
+  let shown = arcs.data;
+  if (arcKey() === 'changes') {
+    // Draw green and red in the year's real proportion (the API sends the strongest of each).
+    const c = captions?.data.find((r) => r.year === year);
+    const total = 220, share = c && c.added + c.removed ? c.removed / (c.added + c.removed) : 0.5;
+    const nRemoved = Math.max(8, Math.round(total * share));
+    const added = arcs.data.filter((a) => a.status === 'added'), removed = arcs.data.filter((a) => a.status === 'removed');
+    shown = [...added.slice(0, total - nRemoved), ...removed.slice(0, nRemoved)];
+  }
+  globe.arcsData(shown);
   const n = { added: 0, removed: 0, same: 0 };
   for (const a of arcs.data) n[a.status]++;
-  for (const k of Object.keys(n)) $(`n-${k}`).textContent = fmt(n[k]);
   if (state.story !== null) {
     // In story mode, name the places the article's links changed to this year.
     const changed = arcs.data.filter((a) => a.status !== 'same')
       .sort((a, b) => (a.status === 'removed' ? 0 : 1) - (b.status === 'removed' ? 0 : 1))
       .map((a) => ({ ...a.to, value: a.status === 'added' ? 2 : 1, changed: a.status }));
     labels = changed;
-    $('story-counts').textContent = `${year}: ${n.added} place links added, ${n.removed} removed, ${n.same} unchanged`;
+    $('story-counts').innerHTML = `In ${year} this one article <span class="s-added">added ${n.added}</span> place links, <span class="s-removed">removed ${n.removed}</span> and kept ${n.same}.`;
   }
 
   labelPool = labels;
   placeLabels();
 
-  lastSql.heat = heat; lastSql.arcs = arcs;
+  lastSql.heat = heat; lastSql.arcs = arcs; lastSql.caption = captions;
   renderSql();
 }
+
+// The sentence for the year: totals, and the single edit that changed the most place links.
+let captions = null;                       // /api/captions response
+const tidy = (c) => String(c || '').replace(/\/\*\s*(.*?)\s*\*\//g, '$1: ').replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1').replace(/:\s*$/, '').trim();
+function renderCaption() {
+  const c = captions?.data.find((r) => r.year === state.year);
+  $('caption').hidden = state.story !== null || !c;
+  if (!c) return;
+  $('caption-totals').innerHTML = `<b>${state.year}</b> · articles <span class="s-added">added ${fmt(c.added)}</span> links to places and <span class="s-removed">removed ${fmt(c.removed)}</span>`;
+  const big = $('caption-biggest');
+  big.hidden = !c.page_id;
+  if (c.page_id) {
+    const parts = [c.n_added ? `${fmt(c.n_added)} added` : '', c.n_removed ? `${fmt(c.n_removed)} removed` : ''].filter(Boolean).join(', ');
+    const summary = tidy(c.comment);
+    big.innerHTML = `Biggest single edit: <a href="#" id="caption-open">${esc(c.title)}</a>, ${parts}`
+      + (summary ? ` <span class="k">— editor's note: “${esc(summary.length > 90 ? `${summary.slice(0, 88)}…` : summary)}”</span>` : '');
+    $('caption-open').onclick = (e) => { e.preventDefault(); openArticle(c.page_id); };
+  }
+  // Room for Gemma's one-sentence explanation (change_reason table, stage 7); hidden until it exists.
+  const why = $('caption-reason');
+  why.hidden = !c.reason;
+  if (c.reason) why.innerHTML = `<span class="gemma">explained by Gemma</span> ${esc(c.reason)}`;
+}
+
+// On the globe the English name is added only when the pair stays short.
+const labelText = (d) => (en(d) && d.title.length + en(d).length <= 24 ? `${d.title} ${en(d)}` : d.title);
 
 // Place names: strongest first, skipping any that would sit on top of one already shown.
 let labelPool = [];
@@ -245,15 +298,23 @@ function placeLabels() {
     if (d === sel && shown.length) continue;
     if (shown.length >= max) break;
     const cos = Math.cos((d.lat * Math.PI) / 180);
-    if (shown.some((o) => Math.abs(o.lat - d.lat) < minDeg * 0.45 && Math.abs(o.lon - d.lon) * cos < minDeg)) continue;
+    // wider labels need more room sideways (about 9 characters fit in minDeg)
+    const wide = (o) => minDeg * Math.max(1, (labelText(o).length + labelText(d).length) / 18);
+    if (shown.some((o) => Math.abs(o.lat - d.lat) < minDeg * 0.45 && Math.abs(o.lon - d.lon) * cos < wide(o))) continue;
     shown.push(d);
   }
   globe.htmlElementsData(shown);
 }
-globe.controls().addEventListener('end', placeLabels);
+function rescale() {
+  const z = Math.max(0.3, Math.min(1.6, globe.pointOfView().altitude / 0.62));
+  if (Math.abs(z - zoom) / zoom < 0.12) return;
+  zoom = z;
+  globe.pointRadius(globe.pointRadius()).arcStroke(globe.arcStroke());   // re-evaluate the accessors
+}
+globe.controls().addEventListener('end', () => { rescale(); placeLabels(); });
 
 // ------------------------------------------------------------------ SQL drawer
-const lastSql = { heat: null, arcs: null };
+const lastSql = { heat: null, arcs: null, caption: null };
 function highlight(sql) {
   return esc(sql)
     .replace(/(--[^\n]*)/g, '<span class="c">$1</span>')
@@ -266,7 +327,11 @@ function renderSql() {
     text = `-- What the globe reads (${ms} ms)\n${lastSql.heat.sql}\n\n-- How heat_year was built for ${state.year}: system-versioned queries\n${lastSql.heat.built_from}`;
   } else if (state.sqlTab === 'arcs' && lastSql.arcs) {
     ms = lastSql.arcs.ms;
-    text = `-- Arcs for ${state.year} (${ms} ms)\n${lastSql.arcs.sql}`;
+    text = `-- Arcs for ${state.year} (${ms} ms)\n${lastSql.arcs.sql}`
+      + (lastSql.arcs.built_from ? `\n\n-- How arc_year was built for ${state.year}: system-versioned queries\n${lastSql.arcs.built_from}` : '');
+  } else if (state.sqlTab === 'caption' && lastSql.caption) {
+    ms = lastSql.caption.ms;
+    text = `-- The sentence above the globe (${ms} ms)\n${lastSql.caption.sql}\n\n${lastSql.caption.built_from}`;
   } else if (state.sqlTab === 'panel') {
     ms = state.panelSql?.ms ?? '';
     text = state.panelSql ? `-- Side panel (${ms} ms)\n${state.panelSql.sql}` : '-- Click a place or an article to see its query.';
@@ -295,8 +360,8 @@ async function openPlace(title, siblings = null, fly = true) {
   if (panelView?.title !== title) return;
   const p = res.place;
   globe.ringsData(p.is_country ? [] : [p]);
-  if (fly) globe.pointOfView({ lat: p.lat, lng: p.lon, altitude: p.is_country ? 0.9 : 0.42 }, 1200);
-  setTimeout(placeLabels, 1300);
+  if (fly) globe.pointOfView({ lat: p.lat, lng: p.lon, altitude: p.is_country ? 0.9 : 0.3 }, 1200);
+  setTimeout(() => { rescale(); placeLabels(); }, 1300);
   const located = res.data.filter((r) => r.relation === 'located here');
   const linking = res.data.filter((r) => r.relation === 'links here');
   const item = (r) => `<li data-page="${r.page_id}"><span class="t">${esc(r.title)}</span><span class="m">${
@@ -304,10 +369,10 @@ async function openPlace(title, siblings = null, fly = true) {
   const sib = (siblings || []).filter((s) => s.title !== title);
   showPanel(`
     <h2>${esc(p.title)}</h2>
-    <p class="sub">${esc(p.kind || p.category)} · as of ${dateLabel()}</p>
+    <p class="sub">${en(p) ? `${esc(en(p))} · ` : ''}${esc(p.kind || p.category)} · as of ${dateLabel()}</p>
     ${sib.length ? `<div class="chips">${sib.slice(0, 8).map((s) => `<button class="chip" data-place="${esc(s.title)}">${esc(s.title)}</button>`).join('')}</div>` : ''}
     ${located.length ? `<h3>Articles located here</h3><ul class="article-list">${located.map(item).join('')}</ul>` : ''}
-    <h3>${linking.length} article${linking.length === 1 ? '' : 's'} linking here</h3>
+    <h3>${fmt(res.linking_total)} article${res.linking_total === 1 ? '' : 's'} link here${res.linking_total > linking.length ? ` · the ${linking.length} that mention it most` : ''}</h3>
     ${linking.length ? `<ul class="article-list">${linking.map(item).join('')}</ul>` : `<p class="empty">No article linked this place on ${dateLabel()}.</p>`}
   `);
   document.querySelectorAll('#panel [data-page]').forEach((li) => (li.onclick = () => openArticle(+li.dataset.page, panelView)));
@@ -384,6 +449,14 @@ document.querySelectorAll('#metrics button').forEach((b) => (b.onclick = () => {
   preload();
 }));
 
+$('show-all').checked = state.showAll;
+$('show-all').onchange = (e) => { state.showAll = e.target.checked; render(); preload(); };
+
+// ------------------------------------------------------------------ landing
+function closeLanding() { $('landing').hidden = true; }
+$('landing-story').onclick = () => { closeLanding(); startStory(true); };
+$('landing-explore').onclick = () => { closeLanding(); setYear(2004); play(true); };
+
 // ------------------------------------------------------------------ story
 function storyStep(i) {
   state.story = i;
@@ -400,7 +473,9 @@ function startStory(autoplay = true, step = 0) {
   state.story = step;
   $('story-card').hidden = false;
   $('story-btn').hidden = true;
+  document.body.classList.add('story');
   globe.pointOfView({ lat: 60.5, lng: 22, altitude: 0.78 }, 1400);
+  setTimeout(() => { rescale(); placeLabels(); }, 1500);
   storyStep(step);
   preload();
   if (autoplay) play(true);
@@ -410,6 +485,7 @@ function exitStory(rerender = true) {
   state.story = null;
   $('story-card').hidden = true;
   $('story-btn').hidden = false;
+  document.body.classList.remove('story');
   closePanel();
   if (rerender) { render(); preload(); }
 }
@@ -421,7 +497,10 @@ $('story-exit').onclick = () => { exitStory(); globe.pointOfView(HOME, 1200); };
   const geo = await fetch('/countries.geojson').then((r) => r.json());
   countryFeatures = geo.features.filter((f) => f.properties.iso !== 'AQ');
   for (const f of countryFeatures) featureByQid.set(f.properties.qid, f);
-  if (params.get('sql')) $('sql-drawer').classList.remove('closed');
+  captions = await api('/api/captions').catch(() => null);
+  if (params.get('sql')) { $('sql-drawer').classList.remove('closed'); if (params.get('sql') !== '1') state.sqlTab = params.get('sql'); }
+  // The landing overlay greets a first visit; deep links (?year=, ?story=, ?place=) skip it.
+  $('landing').hidden = ['year', 'story', 'place'].some((k) => params.has(k));
   if (params.get('story')) {
     const step = Math.max(0, STORY.findIndex((s) => s.year === state.year));
     startStory(params.get('autoplay') === '1', step);

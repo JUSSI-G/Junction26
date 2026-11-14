@@ -197,7 +197,7 @@ FROM (SELECT page_id, mentions
       WHERE to_place = ?
       ORDER BY mentions DESC, page_id LIMIT ?) l
 JOIN article FOR SYSTEM_TIME AS OF TIMESTAMP ? a ON a.page_id = l.page_id
-ORDER BY relation DESC, mentions DESC, len DESC"""
+ORDER BY relation DESC, len DESC"""
 
 
 @app.get("/api/place/{title}")

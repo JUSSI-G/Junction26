@@ -506,3 +506,54 @@ No step came near 45 min, so nothing needed optimising for time.
   Stage 3 were measured before the camp category existed.
 - **2014-02-11 edit on 1150:** still 5 camps added (Hennalan, Hämeenlinnan, Riihimäen, Suomenlinnan,
   Tampereen vankileiri) and Tampere + Suomenlinna removed.
+
+## Night run, task 3: Stage 5b, readable in 5 seconds (2026-11-14)
+
+1. **Legend, always visible** ("How to read the map"): dot sizes (text follows the metric: "bigger =
+   more written about it"), country shading, green / red dashed / grey arcs, and the toggle.
+2. **Caption per year**, from `/api/captions` (`year_caption`, built from `place_link FOR SYSTEM_TIME
+   ALL`): "**2014** · articles added 6,457 links to places and removed 630", then "Biggest single edit:
+   *Lapinkylä*, 93 added — editor's note: …" (click opens the article). Below it an empty slot,
+   `#caption-reason`, shown only when the API returns `reason`: it renders as an "explained by Gemma"
+   pill + one sentence. Stage 7 only needs to create `change_reason (page_id, rev_id, reason, label)`.
+   **Decision:** "biggest change" = the single edit that added + removed the most place links that
+   year, not counting an article's first version.
+3. **Default arcs = added + removed with a known origin** (220 per year, green and red in the year's
+   real proportion so red doesn't look as common as green). "Show all links" adds kept links and
+   arcs whose origin is inferred (90 per group).
+4. **Opens on Finland + the Baltic** (lat 61.2, lon 23.5, altitude 0.62).
+5. **Metric names:** How much is written / How much was edited / Where editors fought / What was
+   rewritten. The one-line explanation of the selected metric is always shown under the toggle
+   (a hover-only tooltip would be missed in a demo).
+6. **Landing overlay** with the title, one explanatory sentence, "▶ Watch: the 1918 civil war" (starts
+   the story) and "Explore freely" (**decision:** starts at 2004 and presses play, because a static 2004
+   is nearly empty). Deep links (`?year=`, `?story=`, `?place=`) skip the overlay.
+7. **English labels:** `labels_en.py` fetched the `en` label for all 11,428 places once (229 requests,
+   cached in `data/place_labels.tsv`), stored in `place.en_label`; 5,643 differ from the Finnish title.
+   Shown in tooltips, the place panel and, when short, on the globe ("Viipuri Vyborg").
+   `places.py` refills `en_label` from the cache.
+8. **Full scale:** 700 strongest places as dots (+ countries as polygons), 220 arcs by default; marks
+   are sized in degrees, so dot radius and arc width now shrink when the camera zooms in. Place names
+   are decluttered with label width taken into account. Place panel lists the 200 articles that
+   mention the place most, largest first, with the true total ("903 articles link here").
+   Story captions updated to the full-scale numbers (65 / 107 / 112 places).
+
+## Night run, task 4: screenshots (2026-11-14)
+
+`cd web; npm run screenshots` → `docs/screenshots/` (headless Edge, 1600×900):
+`landing`, `2005`, `2014`, `2018`, `2018-all-links`, `2007-where-editors-fought`,
+`2013-what-was-rewritten`, `story-1918-2014`, `place-tampere-2018`, `sql-drawer`.
+
+Fixed after looking at them:
+- place names were things like "Kirjasalon tasavalta" and "Färsaaret": the API returns countries first,
+  so the label list wasn't ordered by value → sorted by value in the frontend;
+- red arcs looked as common as green (150 of each) → proportional to the year's totals;
+- arcs and dots were huge after flying to a place → sizes scale with camera altitude;
+- legend lines wrapped → shorter wording, wider box;
+- top bar ran over the title when the side panel was open → subtitle hides, bar re-centres;
+- landing text was hard to read over the globe labels → darker backdrop;
+- place panel started with 1 KB stubs (ordered by mentions) → largest articles first.
+
+Still imperfect: "Ahvenanmaan maakunta" can be half covered by the Helsinki label; centroid dots for
+continents/regions ("Eurooppa", "Pohjoismaat") get labels in some metrics; play/pause, hover tooltips
+and autoplay are still only checked through screenshots, not by hand.
