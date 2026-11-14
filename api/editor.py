@@ -162,7 +162,8 @@ def compare(wikidata_id: str):
     topic = {"wikidata_id": wikidata_id,
              "titles": {l: by_lang[l]["title"] for l in LANGS},
              "urls": {l: by_lang[l]["url"] for l in LANGS},
-             "edit_urls": {l: _edit_url(by_lang[l]["url"]) for l in LANGS}}
+             "edit_urls": {l: _edit_url(by_lang[l]["url"]) for l in LANGS},
+             "page_ids": {l: by_lang[l]["page_id"] for l in LANGS}}
     sc, ms2 = query(SCORES_SQL, q)
     scores = {k: _num(sc[0][k]) for k in ("fi_sv", "fi_en", "sv_en")} if sc else {}
     fi_rows, ms3 = query(FI_ROWS_SQL, q)

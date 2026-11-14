@@ -151,8 +151,8 @@ const ARC = { added: [61, 220, 132], removed: [255, 90, 95], same: [143, 155, 17
 let zoom = 1;   // marks are sized in degrees; shrink them when the camera is close
 const globe = new Globe($('globe'), { animateIn: false })
   .backgroundColor('#05070d')
-  .globeImageUrl('/earth-dark.jpg')
-  .bumpImageUrl('/earth-topology.png')
+  .globeImageUrl(import.meta.env.BASE_URL + 'earth-dark.jpg')
+  .bumpImageUrl(import.meta.env.BASE_URL + 'earth-topology.png')
   .atmosphereColor('#4b83c4')
   .atmosphereAltitude(0.16)
   // countries
@@ -565,7 +565,7 @@ $('story-exit').onclick = () => { exitStory(); globe.pointOfView(HOME, 1200); };
 
 // ------------------------------------------------------------------ start
 (async function init() {
-  const geo = await fetch('/countries.geojson').then((r) => r.json());
+  const geo = await fetch(import.meta.env.BASE_URL + 'countries.geojson').then((r) => r.json());
   countryFeatures = geo.features.filter((f) => f.properties.iso !== 'AQ');
   for (const f of countryFeatures) featureByQid.set(f.properties.qid, f);
   captions = await api('/api/captions').catch(() => null);

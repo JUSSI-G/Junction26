@@ -16,6 +16,11 @@
    "fi": "https://fi.wikipedia.org/w/index.php?title=Sauli_Niinist%C3%B6&action=edit",
    "sv": "https://sv.wikipedia.org/w/index.php?title=Sauli_Niinist%C3%B6&action=edit",
    "en": "https://en.wikipedia.org/w/index.php?title=Sauli_Niinist%C3%B6&action=edit"
+  },
+  "page_ids": {
+   "fi": 1137,
+   "sv": 0,
+   "en": 0
   }
  },
  "scores": {

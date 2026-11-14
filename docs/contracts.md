@@ -104,7 +104,8 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
  "topic": {"wikidata_id": "Q29207",
            "titles": {"fi": "…", "sv": "…", "en": "…"},
            "urls": {"fi": "https://fi.wikipedia.org/wiki/…", "sv": "…", "en": "…"},
-           "edit_urls": {"fi": "https://fi.wikipedia.org/w/index.php?title=…&action=edit", "sv": "…", "en": "…"}},
+           "edit_urls": {"fi": "https://fi.wikipedia.org/w/index.php?title=…&action=edit", "sv": "…", "en": "…"},
+           "page_ids": {"fi": 1137, "sv": 0, "en": 0}},
  "scores": {"fi_sv": 0.212, "fi_en": 0.168, "sv_en": 0.143},
  "rows": [{"fi": {"sent_no": 0, "text": "…"},
            "sv": {"sent_no": 0, "text": "…", "distance": 0.11},
@@ -171,3 +172,6 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
   27B run already has them). Worklist: `framing`, `judged_pairs`, top-level `judged_by`; counts from
   `pair_judgement` (primary model). Compare: judgement objects carry tones, claims, `note`,
   `both_models_agree`; new top-level `contradictions`. Mocks updated.
+- 2026-11-15 (demo app): compare `topic.page_ids` (the article page opens Kristian's views of the
+  Finnish article by its page id). New routes for the demo app are in `api/explore.py` (not part of
+  this contract): `/api/topics`, `/api/chips`, `/api/similar/{id}`, `/api/topic-places`.

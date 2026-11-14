@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
-import SqlDrawer from './SqlDrawer.jsx'
+import { useSql } from './SqlDrawer.jsx'
 
 // Worklist: articles ranked by how much their fi / sv / en versions disagree (GET /api/worklist,
 // docs/contracts.md c). Click a column to sort, click a row to open the comparison view.
@@ -40,6 +40,7 @@ export default function Worklist({ onOpen }) {
     })
     return list
   }, [res, sort])
+  useSql(res ? [{ label: 'Worklist', sql: res.sql, ms: res.ms }] : [], [res])
 
   if (!res) return <div className="panel muted">{error ? `API error: ${error}` : 'Loading…'}</div>
 
@@ -77,7 +78,6 @@ export default function Worklist({ onOpen }) {
         </tbody>
       </table>
       <p className="muted small" style={{ marginTop: 10 }}>— = that stage has not run yet for this article.</p>
-      <SqlDrawer queries={[{ label: 'Worklist', sql: res.sql }]} />
     </div>
   )
 }

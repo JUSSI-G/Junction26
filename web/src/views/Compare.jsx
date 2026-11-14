@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, isEditorMock } from '../api.js'
-import SqlDrawer from './SqlDrawer.jsx'
+import { useSql } from './SqlDrawer.jsx'
 
 // Comparison view: fi | sv | en aligned sentence by sentence (GET /api/compare/{wikidata_id},
 // docs/contracts.md c). Each sv / en cell is coloured by how it relates to the Finnish sentence:
@@ -40,16 +40,18 @@ function rowStatus(row) {
   return SEVERITY.find((s) => all.includes(s)) || 'match'
 }
 
-export default function Compare({ wikidataId, onBack, onHistory }) {
+export default function Compare({ wikidataId, onBack, onHistory, embedded = false, preloaded = null }) {
   const [res, setRes] = useState(null)
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('all')
   const [sel, setSel] = useState(null)
 
   useEffect(() => {
-    setRes(null); setSel(null)
+    setSel(null)
+    if (preloaded) { setRes(preloaded); return }       // the article page fetched it already
+    setRes(null)
     api.compare(wikidataId).then(setRes).catch((e) => setError(e.message))
-  }, [wikidataId])
+  }, [wikidataId, preloaded])
 
   const counts = useMemo(() => {
     const c = { all: 0, problems: 0 }
@@ -60,6 +62,7 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
     }
     return c
   }, [res])
+  useSql(res ? [{ label: 'Compare fi / sv / en', sql: res.sql, ms: res.ms }] : [], [res])
 
   if (!res) return <div className="panel muted">{error ? `API error: ${error}` : 'Loading…'}</div>
   const { topic, scores, rows } = res
@@ -74,17 +77,17 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
 
   return (
     <div className="compare">
-      <button className="btn ghost back" onClick={onBack}>← Worklist</button>
+      {onBack && <button className="btn ghost back" onClick={onBack}>← Worklist</button>}
       {isEditorMock && topic.wikidata_id !== wikidataId && (
         <p className="mocknote">Mock data holds one topic only, so this shows <b>{topic.titles.fi}</b> instead of {wikidataId}.</p>
       )}
 
       <div className="panel cmphead">
-        <div className="cmptitle">
+        {!embedded && <div className="cmptitle">
           <h2>{topic.titles.fi}</h2>
           <span className="muted small">{topic.wikidata_id}</span>
           {onHistory && <button className="btn sm" onClick={() => onHistory(topic)} title="Kristian's views of the Finnish article: edit wars, contested sentences, any date">Finnish edit history →</button>}
-        </div>
+        </div>}
         <div className="dists">
           {[['fi_sv', 'fi ↔ sv'], ['fi_en', 'fi ↔ en'], ['sv_en', 'sv ↔ en']].map(([k, l]) => (
             <span key={k} title="Whole-article cosine distance (bge-m3): 0 = same, higher = more different"><small>{l}</small><b>{scores?.[k] != null ? scores[k].toFixed(3) : '—'}</b></span>
@@ -124,14 +127,13 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
             {sel === i && <FixPanel row={r} topic={topic} />}
           </React.Fragment>
         ))}
-        {shown.length === 0 && <p className="muted" style={{ padding: 12 }}>No rows with this status.</p>}
+        {shown.length === 0 && <p className="muted" style={{ padding: 12 }}>{res.note ? 'Sentence data is not computed for this article yet.' : 'No rows with this status.'}</p>}
       </div>
 
       <div className="legend cmplegend">
         {SEVERITY.slice().reverse().map((s) => <span key={s} title={STATUS[s].help}><i className={`sw ${s}`} />{STATUS[s].label}</span>)}
         <span>· hover a sentence for Gemma's reason · click a row to fix it</span>
       </div>
-      <SqlDrawer queries={[{ label: 'Compare', sql: res.sql }]} />
     </div>
   )
 }

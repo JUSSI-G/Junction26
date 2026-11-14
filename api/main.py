@@ -7,9 +7,10 @@
 
     uvicorn api.main:app --reload            # http://localhost:8000/docs
 
-Frontends, served from the same origin while the two are being merged:
-    /            the place globe            (web/globe/dist)
-    /contested/  the sentence views (React) (web/dist)
+Frontends, served from the same origin:
+    /            redirects to /contested/ (the editor app: worklist, article page, map)
+    /contested/  the React app (web/dist)
+    /globe/      the old place globe (web/globe/dist), hidden from the navigation
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from api import history as H
@@ -28,6 +31,8 @@ from api import models as M
 from api.db import DB_ERRORS, db_error, pool
 from api.places import router as places_router
 from api.editor import router as editor_router
+from api.explore import router as explore_router
+from common import embed
 from common.db import ROOT
 
 app = FastAPI(title="Rewritten · Contested History", version="2.0",
@@ -36,6 +41,10 @@ app = FastAPI(title="Rewritten · Contested History", version="2.0",
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
 app.include_router(places_router)
 app.include_router(editor_router)
+app.include_router(explore_router)
+app.add_middleware(GZipMiddleware, minimum_size=2000)
+if os.environ.get("EMBED_WARM", "1") == "1":
+    embed.warm()                  # load bge-m3 for the semantic search in a background thread
 
 Bucket = Literal["month", "quarter", "year"]
 
@@ -160,4 +169,9 @@ GLOBE = ROOT / "web" / "globe" / "dist"      # the place globe
 if CONTESTED.exists():
     app.mount("/contested", StaticFiles(directory=CONTESTED, html=True), name="contested")
 if GLOBE.exists():
-    app.mount("/", StaticFiles(directory=GLOBE, html=True), name="globe")
+    app.mount("/globe", StaticFiles(directory=GLOBE, html=True), name="globe")
+
+
+@app.get("/", include_in_schema=False)
+def landing():
+    return RedirectResponse("/contested/")

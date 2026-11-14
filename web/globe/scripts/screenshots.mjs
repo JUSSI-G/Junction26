@@ -35,7 +35,7 @@ page.on('console', (m) => { if (m.type() === 'error') console.log('  console err
 page.on('pageerror', (e) => console.log('  page error:', e.message));
 for (const s of shots) {
   if (only.length && !only.some((o) => s.name.includes(o))) continue;
-  await page.goto(BASE + s.url);
+  await page.goto(BASE + '/globe' + s.url);
   await page.waitForFunction(() => window.__app && window.__app.ready(), null, { timeout: 30000 });
   await page.waitForTimeout(5000);     // camera flight, textures, arc animation
   await page.screenshot({ path: path.join(OUT, `${s.name}.png`) });

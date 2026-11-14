@@ -84,6 +84,29 @@ def match(cur, topics: list[str]) -> float:
     return time.perf_counter() - t
 
 
+def match_parallel(topics: list[str], workers: int) -> float:
+    """match() over several connections (one per worker); topics are independent."""
+    from concurrent.futures import ThreadPoolExecutor
+    t = time.perf_counter()
+    chunks = [topics[i::workers] for i in range(workers)]
+    done = [0]
+
+    def run(chunk: list[str]) -> None:
+        con = connect(autocommit=True)
+        try:
+            cur = con.cursor()
+            for i in range(0, len(chunk), 50):
+                match(cur, chunk[i:i + 50])
+                done[0] += len(chunk[i:i + 50])
+                print(f"  {done[0]:,} / {len(topics):,} topics, {time.perf_counter() - t:.0f} s", flush=True)
+        finally:
+            con.close()
+
+    with ThreadPoolExecutor(workers) as ex:
+        list(ex.map(run, chunks))
+    return time.perf_counter() - t
+
+
 def topics_with_sentences(cur) -> list[str]:
     cur.execute("SELECT wikidata_id FROM lang_sentence GROUP BY wikidata_id "
                 "HAVING COUNT(DISTINCT lang) = 3 ORDER BY wikidata_id")
@@ -174,6 +197,7 @@ def main() -> None:
     ap.add_argument("--topics", help="comma-separated wikidata ids (default: all with sentences)")
     ap.add_argument("--report", action="store_true", help="hero counts and examples (no rematching)")
     ap.add_argument("--calibrate", action="store_true")
+    ap.add_argument("--workers", type=int, default=1, help="parallel connections (topics are independent)")
     a = ap.parse_args()
     con = connect(autocommit=True)
     cur = con.cursor()
@@ -184,7 +208,7 @@ def main() -> None:
         report(cur)
     else:
         topics = a.topics.split(",") if a.topics else topics_with_sentences(cur)
-        secs = match(cur, topics)
+        secs = match(cur, topics) if a.workers <= 1 else match_parallel(topics, a.workers)
         cur.execute("SELECT COUNT(*) AS n, SUM(mutual) AS mutual, SUM(matched) AS matched FROM lang_pair")
         r = cur.fetchone()
         print(f"matched {len(topics)} topics in {secs:.1f} s; lang_pair {r['n']:,} rows, "

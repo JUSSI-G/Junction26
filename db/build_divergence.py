@@ -3,17 +3,25 @@ r"""Build article_divergence: the editor worklist, one row per topic in fi + sv 
     .venv\Scripts\python -m db.build_divergence
 
 Parts (each 0..1, higher = needs an editor more):
-  divergence  mean of the percentile ranks of the LENGTH-ADJUSTED fi–sv and fi–en distances.
+  distance    mean of the percentile ranks of the LENGTH-ADJUSTED fi–sv and fi–en distances.
               Whole-article distance = VEC_DISTANCE_COSINE between dataset S's bge-m3 vectors. It grows
               when one version is much longer, so for each pair a linear fit on all 2,919 topics,
                   distance ≈ a + b·|ln(len_fi / len_other)| + c·ln(min(len_fi, len_other)),
               (lengths in characters, +1) removes what length explains, and the residual is ranked.
               A high residual = the versions say different things, not just more or less.
+  missing     mean of the percentile ranks of the LENGTH-ADJUSTED unaligned share for sv and en:
+                  unaligned_l = (missing_l + missing_in_fi_l) / (fi_sentences + l_sentences)
+              = the share of both versions' sentences with no counterpart closer than 0.418, in either
+              direction. A much longer version leaves more unaligned by itself, so the same kind of fit
+              as for the distance, on sentence counts over every topic with sentence data,
+                  unaligned ≈ a + b·|ln(n_fi / n_l)| + c·ln(min(n_fi, n_l)),
+              removes what length explains, and the residual is ranked.
   edit_war    PERCENT_RANK of (sentence lives that came back + whole-article reverts) of the Finnish
               article, from article_stats (built from article_sentence FOR SYSTEM_TIME ALL)
-score = 0.6 · divergence + 0.4 · edit_war. Every topic has both parts.
+score = 0.3 · distance + 0.3 · missing + 0.4 · edit_war. A missing part (no sentences in a language,
+no Finnish history) is left out and the others reweighted. p_distance / p_missing / p_edit_war keep the
+parts, to explain a rank.
 
-Shown but not scored (only ~200 topics have sentence data; scoring them ranked exactly those first):
   missing_sv / missing_en       Finnish sentences with NO sv / en sentence closer than 0.418
                                 (the nearest one, mutual or not: lang_pair direction 'fi')
   missing_in_fi_sv / _en        sv / en sentences with no Finnish sentence closer than 0.418
@@ -42,7 +50,7 @@ from ingest.load_judgements import PRIMARY_MODEL, ensure_table
 EXTREME_PERCENTILE = 97
 SUBJECT_SHARE = 0.10
 MIN_SENTENCES = 5
-WEIGHTS = {"divergence": 0.6, "edit_war": 0.4}
+WEIGHTS = {"distance": 0.3, "missing": 0.3, "edit_war": 0.4}
 OVERRIDES = ROOT / "db" / "subject_overrides.tsv"
 
 DDL = [
@@ -57,10 +65,13 @@ DDL = [
   missing_sv         INT, missing_en INT,                   -- NULL: sentences not computed
   missing_in_fi_sv   INT, missing_in_fi_en INT,
   share_sv           FLOAT, share_en FLOAT,                 -- mutual matches / shorter version's sentences
+  unaligned_sv       FLOAT, unaligned_en FLOAT,             -- sentences without counterpart / all sentences
+  unaligned_sv_resid FLOAT, unaligned_en_resid FLOAT,       -- the same, minus what length explains
   contradictions     INT,                                   -- NULL: Gemma has not judged this topic
   edit_war_score     FLOAT,                                 -- NULL: Finnish article not in dataset M
   different_subject  BOOL NOT NULL DEFAULT 0,
   subject_note       VARCHAR(400),
+  p_distance         FLOAT, p_missing FLOAT, p_edit_war FLOAT,   -- the score's parts, 0..1
   score              FLOAT,
   rnk                INT,
   KEY (rnk)
@@ -149,8 +160,9 @@ def main() -> None:
                  fi_en_resid=float(resid["fi_en"][i]), has_sentences=has, fi_sentences=None,
                  sv_sentences=None, en_sentences=None, missing_sv=None, missing_en=None,
                  missing_in_fi_sv=None, missing_in_fi_en=None, share_sv=None, share_en=None,
+                 unaligned_sv=None, unaligned_en=None, unaligned_sv_resid=None, unaligned_en_resid=None,
                  contradictions=contra.get(q), edit_war_score=war.get(q), different_subject=False,
-                 subject_note=None, score=None, rnk=None)
+                 subject_note=None, p_distance=None, p_missing=None, p_edit_war=None, score=None, rnk=None)
         if has:
             r["fi_sentences"] = s[("sv", "fi")][0]
             for l in ("sv", "en"):
@@ -159,6 +171,8 @@ def main() -> None:
                 r[f"missing_in_fi_{l}"] = s[(l, "other")][2]
                 shorter = min(r["fi_sentences"], r[f"{l}_sentences"])
                 r[f"share_{l}"] = s[(l, "fi")][1] / max(1, shorter)
+                r[f"unaligned_{l}"] = (r[f"missing_{l}"] + r[f"missing_in_fi_{l}"]) / \
+                    max(1, r["fi_sentences"] + r[f"{l}_sentences"])
                 if (d[f"fi_{l}"][i] > cut[f"fi_{l}"] and r[f"share_{l}"] < SUBJECT_SHARE
                         and shorter >= MIN_SENTENCES and not r["different_subject"]):
                     r["different_subject"] = True
@@ -169,10 +183,29 @@ def main() -> None:
         if o:
             r["different_subject"] = o["subject"] == "different"
             r["subject_note"] = f"override ({o['subject']} subject): {o['note']}"
-        parts = {"divergence": (pr["fi_sv"][i] + pr["fi_en"][i]) / 2, "edit_war": war.get(q)}
+        r["p_distance"] = float((pr["fi_sv"][i] + pr["fi_en"][i]) / 2)
+        r["p_edit_war"] = war.get(q)
+        rows.append(r)
+
+    # missing: length-adjusted unaligned share, over the topics with sentence data
+    has = [r for r in rows if r["has_sentences"]]
+    pm = {}
+    for l in ("sv", "en"):
+        u = np.array([r[f"unaligned_{l}"] for r in has])
+        nf = np.array([float(r["fi_sentences"]) for r in has])
+        no = np.array([float(r[f"{l}_sentences"]) for r in has])
+        res, f = length_residual(u, nf, no)
+        print(f"length fit unaligned_{l}: share = {f['a']:.3f} + {f['b']:.3f}·|ln ratio| {f['c']:+.4f}·ln(shorter) "
+              f"(sentence counts); length explains R² = {f['r2']:.0%}")
+        for r, v in zip(has, res):
+            r[f"unaligned_{l}_resid"] = float(v)
+        pm[l] = pct_rank(res)
+    for k, r in enumerate(has):
+        r["p_missing"] = float((pm["sv"][k] + pm["en"][k]) / 2)
+    for r in rows:
+        parts = {"distance": r["p_distance"], "missing": r["p_missing"], "edit_war": r["p_edit_war"]}
         avail = {k: v for k, v in parts.items() if v is not None}
         r["score"] = round(float(sum(WEIGHTS[k] * v for k, v in avail.items()) / sum(WEIGHTS[k] for k in avail)), 4)
-        rows.append(r)
     for k, r in enumerate(sorted((r for r in rows if not r["different_subject"]), key=lambda r: -r["score"]), 1):
         r["rnk"] = k
     cols = list(rows[0])

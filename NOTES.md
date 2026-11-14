@@ -1120,3 +1120,115 @@ under `/contested/`) uses `/api/worklist` and `/api/compare`. `npm run dev:mock`
 - Screenshots: `docs/screenshots/editor-flow-{0-globe-language,1-globe-line-hover,2-compare,3-contradiction-row,4-gemma-reasons}.png`.
 
 Tests: 76 passed.
+
+## Demo app: worklist -> article page -> map (2026-11-15)
+
+The app is simplified for the 3-minute demo. Everything not listed below is hidden, not deleted:
+- `/` redirects to the worklist at `/contested/`.
+- The old React app (globe tab, time slider, narrative drift…) is at `/contested/#legacy`.
+- The old place globe (year slider, heat metrics, arcs, the 1918 story, the language lines) is at `/globe/`.
+- Old `#compare/Q…` links open the new article page.
+
+**Data added:**
+- `ingest/load_categories.py`: dataset S's Finnish category tree in `category_link` (1,760 parent→child
+  links, child = subcategory or article) and `article_category` (25,720 rows). All 2,919 topics have a
+  category.
+- `db/build_topic_place.py`: `topic_place`, the map position of each topic, by the globe's rule
+  (`page_place` → `article_geo` → inferred most-linked place). 2,688 of 2,919 topics have one
+  (860 page_place, 7 article_geo, 1,821 inferred).
+- `scripts/make_nordic_map.py`: `web/public/nordic.json`, built from Natural Earth 1:10m (public domain)
+  countries and lakes. It is clipped to lon −30…75 / lat 40…82 and simplified at 0.012°, giving 60
+  countries, 288 lakes and 41k points in 652 kB. The globe's file had 40 points for all of Finland.
+
+**API (`api/explore.py`); every answer carries its SQL and ms:**
+- **`/api/topics?q=&mode=meaning|title&chip=`:** the worklist.
+  - Semantic search embeds the query with bge-m3 on CPU (`common/embed.py`): loaded once in a
+    background thread at server start (~10 s), local Hugging Face cache only, ~45 ms per query after
+    that.
+  - It ranks topics by `VEC_DISTANCE_COSINE` against dataset S's article vectors in fi, sv and en: the
+    nearest 300 vectors, using the vector index with `mhnsw_ef_search=80` and the search in a subquery,
+    as the RAG repo found, then MIN distance per topic, top 60.
+  - So "civil war prison camps" (English) finds *Suomenlinnan / Tammisaaren / Tampereen vankileiri*.
+  - Title search is `LIKE` on the three titles.
+  - The chips are a recursive CTE, `WITH RECURSIVE cat` over `category_link` (category + 2 levels),
+    then `article_category`.
+- **Topic chips:**
+
+  | chip | category root | topics |
+  |---|---|---|
+  | Civil War 1918 | Suomen sisällissota | 9 |
+  | Presidents | Suomen presidentit | 7 |
+  | Winter and Continuation Wars | Talvisota + Jatkosota | 17 |
+  | Swedish era | Ruotsin vallan aika Suomessa | 105 |
+  | Russian era | **Suomen suuriruhtinaskunta** | 208 |
+
+  The tree has no "Venäjän vallan aika", so the Russian era uses the Grand Duchy, its nearest category.
+  Civil War has only 9 topics: of the 79 Finnish articles in that category, only 9 exist in all three
+  languages.
+- **`/api/similar/{id}`:**
+  - `SET @v = (the article's fi vector)`, then the 200 nearest Finnish article vectors (index), kept
+    when they are mapped topics, top 10.
+  - The vector index there: 12–20 ms warm, recall 60/60 against the exact scan on a test query.
+  - The exact scan of 29k vectors is 43 ms; the index matters for the 358k sentence vectors, not for
+    these.
+- **`/api/topic-places`, `/api/chips`, `/api/queries/{name}`:** the last gives the text of
+  `db/queries/*.sql`, for the SQL drawer of Kristian's views.
+- **`/api/compare`:** gains `topic.page_ids` (contract updated).
+
+**Frontend (`web/src`):**
+- `App.jsx`: hash routes `#/list?q=…&chip=…`, `#/map?…`, `#/article/Q…/languages|edits`. The filter is
+  shared by the list and the map.
+- `FilterBar`: search box with Meaning / Title toggle, topic chips, the count and the embed time.
+- `ArticleList` ("Articles that need an editor's attention"), sortable columns:
+  - title (fi + en)
+  - language difference (sv / en distance)
+  - missing content (% of Finnish sentences missing in sv / en)
+  - possible contradictions (with "N agree")
+  - edit wars
+  - score
+- `ArticlePage`: breadcrumb back to the (filtered) worklist.
+  - Tab "Languages": the compare view, possible contradictions on top, both-models-agree first.
+  - Tab "Edit wars": Kristian's edit wars / contested sentences / article on a date for the Finnish
+    article, each with its SQL.
+- `MapView`, 2D canvas:
+  - **Projection and layers:** Lambert azimuthal equal-area centred on Finland. Land and lakes are
+    `Path2D`s built once and cached on an offscreen layer per view, so a hover redraws only dots and
+    lines.
+  - **Dots:** coloured by score; with a semantic search, size = similarity.
+  - **Stacking:** articles at the same place (Helsinki has 400, Turku 51, St Petersburg 40) fan out in a
+    sunflower spaced ~3.5 km on the map, so a city is a dense cluster from afar and opens up when you
+    zoom in.
+  - **Lines:** hover or click → lines to the 10 most similar articles (bent, drawn in, thicker = more
+    similar), at most 20 on screen (hover + pin).
+  - **Card:** clicking the name opens the article page.
+  - **View:** fit to the filter (Finland always in view), wheel zoom and drag pan, never zoomed out past
+    the data.
+- **SQL drawer:** one for the whole app (`useSql`), tabbed by query, with the ms of each.
+
+**Speed** (Playwright `web/scripts/demo-flow.mjs`, Edge, 1440×900, real API):
+
+| step | ms |
+|---|---|
+| landing → worklist rendered (2,909 rows) | 490 |
+| semantic search "sisällissota" → list | 313 |
+| chip "Civil War 1918" | 157 |
+| open article → Languages tab | 345 |
+| Edit wars tab / Contested / Article on a date | 229 / 230 / 221 |
+| map for "sisällissota" | 79 |
+| click a dot → 10 similar + lines | 17 |
+| map card name → article page | 243 |
+| map, all 2,616 dots on the map | 195 |
+
+A map frame takes 0.4 ms with 60 dots and 1.9 ms with all 2,616, plus the cached base layer.
+
+Screenshots: `docs/screenshots/demo-{1-worklist,2-search,2b-search-sql,3-chip,4-article-languages,5-article-editwars,6-article-contested,7-article-asof,8-map-search,8b-map-hover,9-map-dot,10-map-all}.png`.
+
+Honest notes:
+- **Placement:** 1,821 of the 2,688 places are inferred (the place the article links most). The 1918
+  war sits at Finland's centre point (its `page_place` is "Suomi").
+- **Similarities:** semantic search scores are low and close (0.45–0.53), because a 2–5 word query
+  against a whole article is a weak signal. The ranking is still right for the demo queries.
+- **Map scope:** 66 mapped topics lie outside the map's area (the Americas, Asia…); the legend says so.
+- **Judgements:** `judgements-27b-top300.parquet` (Jesse's 7,399-pair run) has not arrived. Only its run
+  log `judge_run-27b-top300.json` and `judgements-12b-contra.parquet` are in Downloads. Until then, only
+  the two hero topics have Gemma labels.

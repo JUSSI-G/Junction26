@@ -45,6 +45,12 @@ export const api = {
   // Editor tool, docs/contracts.md (c). The mock compare.json holds one topic (Niinistö, Q29207).
   worklist: (limit = 50) => get('/worklist', { limit }, 'worklist', EDITOR_MOCKS),
   compare: (wikidataId) => get(`/compare/${encodeURIComponent(wikidataId)}`, {}, 'compare', EDITOR_MOCKS),
+  // The demo app (api/explore.py): worklist with semantic / title search and topic chips, the map.
+  topics: ({ q = '', mode = 'meaning', chip = '' } = {}) => get('/topics', { q, mode: q ? mode : null, chip }),
+  chips: () => get('/chips'),
+  similar: (wikidataId, k = 10) => get(`/similar/${encodeURIComponent(wikidataId)}`, { k }),
+  topicPlaces: () => get('/topic-places'),
+  queryText: (name) => get(`/queries/${name}`),
 }
 
 export const isMock = USE_MOCKS

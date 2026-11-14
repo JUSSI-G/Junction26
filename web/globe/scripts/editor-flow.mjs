@@ -23,13 +23,13 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 page.on('pageerror', (e) => console.log('  page error:', e.message));
 
 // 0. the full picture first
-await page.goto(`${BASE}/?year=2026&metric=language`);
+await page.goto(`${BASE}/globe/?year=2026&metric=language`);
 await page.waitForFunction(() => window.__app && window.__app.ready(), null, { timeout: 30000 });
 await page.waitForTimeout(5000);
 await shot(page, '0-globe-language');
 
 // 1. globe, language differences, focused on the topic
-await page.goto(`${BASE}/?year=2026&metric=language&topic=${Q}`);  // only this topic's lines: 9 topics share its point
+await page.goto(`${BASE}/globe/?year=2026&metric=language&topic=${Q}`);  // only this topic's lines: 9 topics share its point
 await page.waitForFunction(() => window.__app && window.__app.ready(), null, { timeout: 30000 });
 await page.waitForTimeout(5000);
 const topic = await page.evaluate(async (q) => (await (await fetch('/api/lang-lines')).json()).data.find((t) => t.wikidata_id === q), Q);
