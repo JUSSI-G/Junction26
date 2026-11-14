@@ -116,3 +116,4 @@ td.contra b.zero { color: var(--muted); font-weight: 500; }
 .sqltabs small { opacity: .7; font-size: 10px; }
 .sqlcontent pre .c { color: #7f8aa0; }
 .worklist2.stale table { opacity: .35; transition: opacity .2s; }
+.bar2 .num, .pair .num { white-space: nowrap; min-width: 40px; }

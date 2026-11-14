@@ -97,6 +97,10 @@ FROM lang_sentence o JOIN lang_sentence_new n USING (lang, page_id, sent_no)""")
     print(f"  vector index built in {t_index:.0f} s", flush=True)
     cur.execute("DROP TABLE IF EXISTS lang_sentence_cpu")
     cur.execute("RENAME TABLE lang_sentence TO lang_sentence_cpu, lang_sentence_new TO lang_sentence")
+    # Fresh statistics: without them the optimiser picks PRIMARY (lang) over topic_key and every
+    # per-topic query scans a whole language (19 s instead of 0.13 s for one topic in lang_match).
+    cur.execute("ANALYZE TABLE lang_sentence")
+    cur.fetchall()
     print(f"lang_sentence replaced: {sum(expected.values()):,} sentences; rows {t_rows:.0f} s + index "
           f"{t_index:.0f} s = {time.time() - t0:.0f} s. Old CPU rows kept as lang_sentence_cpu.")
     con.close()

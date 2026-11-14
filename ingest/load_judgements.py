@@ -1,11 +1,12 @@
 r"""Import Gemma's pair judgements (docs/contracts.md b) into pair_judgement.
 
-    .venv\Scripts\python -m ingest.load_judgements                       # every data/verda/judgements*.parquet
+    .venv\Scripts\python -m ingest.load_judgements                       # every data/verda/judgements*.parquet, oldest first
     .venv\Scripts\python -m ingest.load_judgements data/verda/judgements-v2-12b.parquet
 
 Re-runnable: for each (model, topic) in a file, that model's old rows for the topic are replaced, so a
 bigger or repeated run of the same model just overwrites, and a second model (e.g. the 12B check) is
-kept next to the first.
+kept next to the first. Without arguments the files are taken oldest first (by modification time), so
+the newest run of a model wins for the topics it covers.
 
 Checks before anything is written (the whole file is refused if one fails):
   * every judged pair points at sentences that exist in OUR lang_sentence numbering
@@ -148,7 +149,8 @@ WHERE direction = 'fi' AND matched AND wikidata_id IN ({_in(topics)})""", topics
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     t0 = time.time()
-    files = [Path(a).resolve() for a in sys.argv[1:]] or sorted(VERDA.glob("judgements*.parquet"))
+    files = [Path(a).resolve() for a in sys.argv[1:]] or sorted(VERDA.glob("judgements*.parquet"),
+                                                                 key=lambda f: f.stat().st_mtime)
     if not files:
         raise SystemExit(f"no judgements*.parquet in {VERDA}")
     con = connect(autocommit=True)

@@ -1232,3 +1232,103 @@ Honest notes:
 - **Judgements:** `judgements-27b-top300.parquet` (Jesse's 7,399-pair run) has not arrived. Only its run
   log `judge_run-27b-top300.json` and `judgements-12b-contra.parquet` are in Downloads. Until then, only
   the two hero topics have Gemma labels.
+
+## GPU sentences for all 2,919 topics, rematch, missing content in the score (2026-11-15)
+
+### 1. Load: `python -m ingest.load_verda_sentences`
+- **Source:** Jesse's Verda run, `data/verda/sentences-{fi,sv,en}.parquet` (bge-m3 fp16, the shared
+  splitter).
+- **Method:**
+  - Loaded into `lang_sentence_new` without a vector index, checked, then indexed.
+  - Swapped in with one `RENAME`; the CPU rows are kept as `lang_sentence_cpu` for rollback.
+- **Counts:** fi **167,278**, sv **72,023**, en **119,252** (358,553), every topic in all three
+  languages, equal to the files and to the requested numbers.
+- **Against the 33,054 CPU sentences:**
+  - All present, all texts identical.
+  - Vector cosine distance mean 1.2e-6, **max 9.0e-4**: a few sentences differ more than the 2e-5 Jesse
+    measured on his sample. Harmless at a threshold of 0.418.
+- **Time:** rows 86 s (fi 20 s, sv 24 s, en 42 s); `ADD VECTOR INDEX` (M=16, cosine) **7,032 s**
+  (1 h 57 min, single-threaded HNSW inserts while the ALTER copies). Total 7,129 s.
+- **Stale statistics:**
+  - After the `RENAME` the optimiser estimated 1 row and used `PRIMARY (lang, …)` instead of
+    `topic_key (wikidata_id, lang)`. Every per-topic match query scanned a whole language: 19 s instead
+    of 0.13 s for Niinistö.
+  - `ANALYZE TABLE lang_sentence` fixed it; the loader and `lang_match` now run it.
+
+### 2. Rematch: `python -m db.lang_match --workers 8`
+- **Result:** all **2,919** topics; `lang_pair` 525,831 rows, 143,484 mutual, 125,968 matched
+  (mutual and < 0.418).
+- **Wall time 889 s, misleadingly:**
+  - The first ~515 topics ran on stale statistics (~840 s).
+  - After the `ANALYZE` the other ~2,400 took **~50 s**.
+  - A clean run is about a minute on 8 connections.
+- **Missing counts:** `missing_*` and `missing_in_fi_*` are now computed for all 2,919 topics
+  (`db.build_divergence`, 1.8 s).
+
+### 3. Score with missing content
+- **Formula:** `score = 0.3 · distance + 0.3 · missing + 0.4 · edit_war`, each a percentile.
+- **Missing part:** the mean percentile of the length-adjusted *unaligned share* for sv and en:
+  - `unaligned_l = (missing_l + missing_in_fi_l) / (fi_sentences + l_sentences)`: the share of both
+    versions' sentences with no counterpart closer than 0.418, in either direction.
+  - Length-corrected like the distance: least squares over all 2,919 topics,
+    `share ≈ a + b·|ln(n_fi/n_l)| + c·ln(min(n_fi, n_l))` (sentence counts), residual ranked.
+  - Fits: sv `0.377 + 0.165·|ln ratio| + 0.0125·ln(shorter)`, R² **41 %**; en
+    `0.384 + 0.184·|ln ratio| − 0.0048·ln(shorter)`, R² **43 %**. Length explains even more of the
+    missing share than of the distance (23–25 %), so the correction matters.
+- **Stored per topic:** `p_distance`, `p_missing`, `p_edit_war`, which explain a rank.
+
+**New top 10** (all at p86–99 on both language parts and p82–98 on edit wars):
+
+| # | fi / sv / en | why |
+|---|---|---|
+| 1 | Sortovuodet / Förtrycksperioderna / Russification of Finland | Finnish is the shortest (25 sentences vs 79 sv, 47 en) and frames it as "years of oppression"; 71 Swedish and 39 English sentences have no Finnish counterpart |
+| 2 | Uhtua / Kalevala (stad) / Kalevala, Russia | the Finnish article is the Finnish history of the village; sv / en describe today's Russian town (census, economy); 25 / 23 of 26 Finnish sentences missing |
+| 3 | Kalastajasaarento / Fiskarhalvön / Rybachy Peninsula | Finnish tells it as part of Petsamo's Finnish history, en as "the northernmost part of continental European Russia" |
+| 4 | Hämäläiset / Tavaster / Tavastians | Finnish "are a people" (56 sentences); Swedish a 3-sentence stub, English 13 sentences: "were a tribe" |
+| 5 | Viipurin linna / Viborgs slott / Vyborg Castle | Finnish starts from the Karelian trading post, sv / en from the Swedish founding (1293); 34 English sentences have no Finnish counterpart |
+| 6 | Karjalankannas / Karelska näset / Karelian Isthmus | English (176 sentences) is today's Russian geography, administration and towns; Finnish centres on Finnish history and lists the 1939 Finnish municipalities; Swedish 14 sentences; edit war p98 |
+| 7 | Pähkinälinna / Nöteborg / Shlisselburg | the Finnish title is the fortress, all three are about the town; Finnish is the short one (25 vs 57 / 77) |
+| 8 | Karjaa / Karis / Karis | Finnish and Swedish are both full local articles but cover different things (fi: villages, dialect, food culture; sv: election results 1976–2004, business); English a 9-sentence stub; 1 possible contradiction |
+| 9 | Vatja / Votiska / Votic language | Swedish a 734-character stub; English (101 sentences) covers speakers and revival in depth; 2 possible contradictions |
+| 10 | Heimosodat / Frändefolkskrigen / Heimosodat | the same wars told differently: fi by expedition (Vienan retket, Aunus, Petsamo, memorial crosses), sv by region with background and the Tartu peace; fi "about 9,000 volunteers" vs sv "about 10,000" |
+
+Sortovuodet, Uhtua, Kalastajasaarento, Hämäläiset, Viipurin linna, Pähkinälinna and Vatja were already
+in the stage-1c top 10 (distance + edit war only). The missing-content part brings in Karjalankannas,
+Karjaa and Heimosodat.
+
+**Heroes:**
+- **Civil war:** rank **78 → 226**. Distance p77, edit war p100, but missing **p42**: its unaligned
+  share is high in raw terms, yet the Finnish article is 870 sentences against 261 / 558, and the length
+  fit explains most of it.
+- **Niinistö:** rank 1,239 → 1,216.
+
+### 4. Hero numbers unchanged
+Compared with a snapshot taken before the reload:
+- **Unchanged:** sentence counts, missing_sv / missing_en and missing_in_fi_sv / _en for Niinistö
+  (242 / 45 / 169; 158 / 82; 11 / 42) and the civil war (870 / 261 / 558; 632 / 323; 146 / 141).
+- **Pair level:**
+  - 5 of 3,257 best matches changed partner, all near-ties: the two candidates were 0.0001 apart, e.g.
+    0.4106 vs 0.4107.
+  - 4 mutual flags changed.
+  - On unchanged pairs, no distance moved more than 0.00065.
+
+### 5. Judgements imported: `python -m ingest.load_judgements`
+- **Files and order:** `judgements.parquet` (27B, heroes), `judgements-v2-12b.parquet`, **`judgements-27b-top300.parquet`** (7,399
+  pairs, 300 topics), **`judgements-12b-contra.parquet`** (269 pairs, the 12B on the 27B's
+  contradictions).
+- **Newest wins:** each file replaces its model's rows for its topics. The default order is now
+  oldest-first by file time, so the newest run of a model wins: the civil war uses the top-300 run,
+  Niinistö keeps the hero run.
+- **Totals:** 27B 7,509 rows / 301 topics (269 contradictions in the top 300); 12B 379 rows / 140 topics.
+- **"Both models agree": 47 contradictions in 38 topics.**
+- **Pairs no longer mutual:** 12 judged pairs in the top-300 run (and 2 + 2 in the hero files) are no
+  longer mutual matches after the GPU rematch (near-ties). They are kept, but do not attach to a row.
+- **Civil war on its article page:** 16 possible contradictions, **5** where both models agree, first.
+
+### 6. Checks
+- Tests: **83 passed, 1 skipped** ("compare without sentence data" has no topic left to test).
+- The judgement test now allows for flipped near-ties.
+- Demo flow (`web/scripts/demo-flow.mjs`) passes with the new data, same timings: every step under
+  ~330 ms; the map click is 11 ms.
+- **Map bug fixed:** hovering a dot whose neighbours were still loading could throw
+  (`shownSim.sql` undefined).

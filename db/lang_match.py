@@ -207,6 +207,8 @@ def main() -> None:
     elif a.report:
         report(cur)
     else:
+        cur.execute("ANALYZE TABLE lang_sentence")   # stale statistics = a full-language scan per topic
+        cur.fetchall()
         topics = a.topics.split(",") if a.topics else topics_with_sentences(cur)
         secs = match(cur, topics) if a.workers <= 1 else match_parallel(topics, a.workers)
         cur.execute("SELECT COUNT(*) AS n, SUM(mutual) AS mutual, SUM(matched) AS matched FROM lang_pair")

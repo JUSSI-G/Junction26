@@ -117,7 +117,11 @@ export default function MapView({ res, filter, onOpen }) {
   const want = [hover?.dot?.id, pin?.id].filter(Boolean)
   useEffect(() => {
     for (const id of want) {
-      if (simCache.has(id)) { if (!neigh[id]) setNeigh((n) => ({ ...n, [id]: { ...simCache.get(id), t0: performance.now() } })); continue }
+      if (simCache.has(id)) {           // null = still on its way; its .then() fills it in
+        const hit = simCache.get(id)
+        if (hit && !neigh[id]) setNeigh((n) => ({ ...n, [id]: { ...hit, t0: performance.now() } }))
+        continue
+      }
       simCache.set(id, null)
       const t0 = performance.now()
       api.similar(id, MAX_LINES).then((r) => {
@@ -131,7 +135,7 @@ export default function MapView({ res, filter, onOpen }) {
   const shownSim = neigh[pin?.id] || neigh[hover?.dot?.id]
   useSql([
     ...(res ? res.sql.map((s) => ({ ...s, ms: res.ms })) : []),
-    ...(shownSim ? shownSim.sql.map((s) => ({ ...s, ms: shownSim.ms })) : []),
+    ...(shownSim?.sql ? shownSim.sql.map((s) => ({ ...s, ms: shownSim.ms })) : []),
     ...(places ? places.sql.map((s) => ({ ...s, ms: places.ms })) : []),
   ], [res, places, shownSim])
 
