@@ -101,6 +101,18 @@ laptop over an SSH tunnel, concurrency 32. Start **21:05:22**, end **21:05:59 EE
   15,000 Reds; Seraphim collar 2014 vs 2016) but some are wrong pairings (different elections) or a
   different scope read as a disagreement. Measured on 30 hand-labelled pairs: `scoring/eval/pairs_labels.csv`,
   `python -m scoring.eval_pairs`.
+- **Accuracy against 30 hand-labelled pairs** (stratified by Gemma's label: 8 contradiction, 8 framing,
+  4 same, 10 partial; labeller did not see Gemma's label): **60 % on the 4 labels** (18/30; also 60 %
+  when the labeller's second-choice label is accepted), **70 %** on "problem (contradiction/framing) or not".
+  - contradiction: precision **3/8**, recall **3/3**. Gemma finds the real ones but over-flags: different
+    estimates or scopes (8,000 vs 10,000 men; battle deaths vs all deaths; 40,000 vs 39,000 paroled)
+    become "contradictions".
+  - framing: precision 4/8, recall 4/4. same: precision 4/4, recall 4/9 (too strict: a missing
+    "Finnish media" or country name makes it "partial").
+  - So contradictions are **candidates for an editor to check**, not verdicts: which fits the tool
+    (a human edits). 30 pairs is a small sample; the stratification also inflates the recall estimates.
+  - Next steps if time: give Gemma the neighbouring sentences as context, a second "is this really a
+    contradiction?" pass, or gemma-3-27b-it on the same A100.
 - Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
   contradiction; added "first ask whether both could be true at the same time". It still does: noted.
 

@@ -66,6 +66,13 @@ def evaluate() -> None:
     acc = sum(h == g for h, g in pairs) / n
     print(f"{n} hand-labelled pairs · model {next(iter(gemma.values()))['model']}")
     print(f"accuracy (4 labels): {acc:.0%}  ({sum(h == g for h, g in pairs)}/{n})")
+    # Lenient: a note "alt: <label>; …" names a second label the labeller would also accept.
+    alt = {k: h["notes"].split(";")[0].removeprefix("alt:").strip()
+           for k, h in human.items() if h.get("notes", "").startswith("alt:")}
+    ok = sum(h["label"].strip() == gemma[k]["label"] or alt.get(k) == gemma[k]["label"]
+             for k, h in human.items() if k in gemma)
+    if alt:
+        print(f"accuracy, accepting the labeller's alternative label ({len(alt)} pairs have one): {ok / n:.0%}  ({ok}/{n})")
     # Coarser question the editor cares about: is there a problem (contradiction/framing) or not?
     prob = lambda x: x in ("contradiction", "framing")  # noqa: E731
     acc2 = sum(prob(h) == prob(g) for h, g in pairs) / n
@@ -82,6 +89,11 @@ def evaluate() -> None:
     print(" " * 15 + "".join(f"{lab[:8]:>10}" for lab in LABELS))
     for hl in LABELS:
         print(f"  {hl:<13}" + "".join(f"{c[(hl, gl)]:>10}" for gl in LABELS))
+    print("\ndisagreements:")
+    for k, h in human.items():
+        g = gemma.get(k)
+        if g and g["label"] != h["label"].strip():
+            print(f"  #{h['n']:>2} {k[2]} human {h['label']:<13} gemma {g['label']:<13} {g['reason'][:110]}")
 
 
 def main() -> None:
