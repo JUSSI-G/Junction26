@@ -4,6 +4,9 @@
     python -m ingest.replay --dataset small --pages 1150   # just Suomen sisällissota
     python -m ingest.replay --dataset small                # the 50 articles
     python -m ingest.replay --dataset large --workers 8    # all of dataset M
+    python -m ingest.replay --dataset large --workers 14 --sentences-only
+                                          # `article` already holds every version (combined app):
+                                          # write only the sentence tables + article_sentence_order
 
 Two ways to put history into the system-versioned tables (same result, tested in api/tests):
 
@@ -72,6 +75,30 @@ def write_bulk(conn, res: BuildResult) -> None:
         cur.execute("SET system_versioning_insert_history = 0")
 
 
+def write_sentences_only(conn, res: BuildResult) -> None:
+    """The combined app: `article` already holds EVERY version (vandalism included) and is not
+    rewritten. Write the sentence lives (built from the filtered revisions) and, per revision id,
+    the sentence order into article_sentence_order. A revision dropped by the vandalism filter gets
+    the order of the last kept revision before it, so a snapshot never shows the vandal's text."""
+    with conn.cursor() as cur:
+        cur.execute("SET system_versioning_insert_history = 1")
+        hist_s = [r for r in res.sentence_rows if r[-1] is not None]
+        cur_s = [r[:-1] for r in res.sentence_rows if r[-1] is None]
+        size_s = lambda r: 120 + 2 * len(r[3])
+        _batched_insert(cur, f"INSERT INTO article_sentence ({S_COLS}, row_start, row_end) VALUES "
+                             f"(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", hist_s, size_s)
+        _batched_insert(cur, f"INSERT INTO article_sentence ({S_COLS}, row_start) VALUES "
+                             f"(%s,%s,%s,%s,%s,%s,%s,%s,%s)", cur_s, size_s)
+        cur.execute("SET system_versioning_insert_history = 0")
+        kept = {row[2]: (row[8], row[9]) for row in res.article_rows}     # rev_id -> (n, order)
+        last, rows = (0, b""), []
+        for rev_id in res.rev_ids:
+            last = kept.get(rev_id, last)
+            rows.append((rev_id, res.page_id, rev_id in kept, last[0], last[1]))
+        _batched_insert(cur, "INSERT IGNORE INTO article_sentence_order (rev_id, page_id, kept, n_sentences, "
+                             "sentence_order) VALUES (%s,%s,%s,%s,%s)", rows, lambda r: 60 + len(r[4]))
+
+
 def write_replay(conn, res: BuildResult) -> None:
     """Option B: let MariaDB stamp the rows, with the session clock set to each edit time."""
     with conn.cursor() as cur:
@@ -127,7 +154,7 @@ def _build(args) -> BuildResult:
 
 def load(dataset: str, pages: set[int] | None = None, mode: str = "bulk", workers: int = 1,
          with_content: bool = False, filter_vandalism: bool = True, database: str | None = None,
-         reset: bool = False, quiet: bool = False) -> dict:
+         reset: bool = False, quiet: bool = False, sentences_only: bool = False) -> dict:
     apply_schema(database, reset=reset)
     conn = connect(database)
     with conn.cursor() as cur:
@@ -146,7 +173,9 @@ def load(dataset: str, pages: set[int] | None = None, mode: str = "bulk", worker
         if not res.kept or res.article_rows[-1][8] == 0:      # redirect / empty now: skip
             return
         tw = time.time()
-        if mode == "bulk":
+        if sentences_only:
+            write_sentences_only(conn, res)
+        elif mode == "bulk":
             write_bulk(conn, res)
         else:
             write_replay(conn, res)
@@ -202,9 +231,12 @@ def main() -> None:
     ap.add_argument("--db", default=None, help="database name (default DB_NAME)")
     ap.add_argument("--reset", action="store_true", help="drop and recreate all tables first")
     ap.add_argument("--record", action="store_true", help="append the run to docs/numbers.md")
+    ap.add_argument("--sentences-only", action="store_true",
+                    help="article already loaded with every version: write only the sentence tables")
     a = ap.parse_args()
     pages = {int(x) for x in a.pages.split(",")} if a.pages else None
-    stats = load(a.dataset, pages, a.mode, a.workers, a.with_content, not a.keep_vandalism, a.db, a.reset)
+    stats = load(a.dataset, pages, a.mode, a.workers, a.with_content, not a.keep_vandalism, a.db, a.reset,
+                 sentences_only=a.sentences_only)
     rate = stats["revisions"] / stats["seconds"] if stats["seconds"] else 0
     line = (f"| {datetime.now():%Y-%m-%d %H:%M} | {a.dataset}{' ' + a.pages if a.pages else ''} | {a.mode} "
             f"| {a.workers} | {stats['articles']:,} | {stats['revisions']:,} | {stats['dropped']:,} "

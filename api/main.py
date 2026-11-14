@@ -3,6 +3,7 @@
   * sentence routes (this file): Contested History — as-of, diff, contested, edit wars, drift,
     bitemporal "about", map. Contract: models in api/models.py.
   * place routes (api/places.py): Rewritten — heat, arcs, captions, place and article panels.
+  * editor routes (api/editor.py): the worklist and the fi / sv / en comparison (docs/contracts.md).
 
     uvicorn api.main:app --reload            # http://localhost:8000/docs
 
@@ -26,6 +27,7 @@ from api import history as H
 from api import models as M
 from api.db import DB_ERRORS, db_error, pool
 from api.places import router as places_router
+from api.editor import router as editor_router
 from common.db import ROOT
 
 app = FastAPI(title="Rewritten · Contested History", version="2.0",
@@ -33,6 +35,7 @@ app = FastAPI(title="Rewritten · Contested History", version="2.0",
                           "sentence-level history, from MariaDB system-versioned tables.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
 app.include_router(places_router)
+app.include_router(editor_router)
 
 Bucket = Literal["month", "quarter", "year"]
 

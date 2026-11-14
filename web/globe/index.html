@@ -22,6 +22,7 @@
       <button data-metric="activity">How much was edited</button>
       <button data-metric="controversy">Where editors fought</button>
       <button data-metric="rewritten">What was rewritten</button>
+      <button data-metric="language" class="lang-btn">Language differences</button>
     </nav>
     <p id="metric-hint"></p>
 
@@ -46,6 +47,11 @@
     <div class="legend-row"><span class="line added"></span><span>Article <b>added</b> a link to a place</span></div>
     <div class="legend-row"><span class="line removed"></span><span>Article <b>removed</b> a link</span></div>
     <div class="legend-row"><span class="line same"></span><span>Link kept all year</span></div>
+    <div class="legend-lang">
+      <div class="legend-row"><span class="dot-lang"></span><span><b id="lang-count">…</b> articles with a place. Line to <b>sv</b> (Stockholm) and <b>en</b> (London)</span></div>
+      <div class="legend-row"><span class="ramp ramp-diff"></span><span>green = same as Finnish, red = differs most</span></div>
+      <div class="legend-note">Cosine distance between the whole articles' bge-m3 vectors (dataset S, Aug 2025). Click to compare sentence by sentence.</div>
+    </div>
     <label class="legend-toggle"><input type="checkbox" id="show-all"> <span style="color:var(--ink)">Show all links</span> <span>(kept links, guessed arc starts)</span></label>
   </aside>
 

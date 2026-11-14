@@ -780,3 +780,74 @@ deciding contradiction needs Gemma (stage 3). Footnote markers (`[130]`) are ign
 - `lang_topic` / `lang_pair` got the server default collation (uca1400) and failed to join
   `lang_sentence` (unicode_ci): all `lang_*` tables are now `utf8mb4_unicode_ci`.
 - The first heading-and-list-blind split kept Markdown headings as sentences → `text_sentences()`.
+
+## Editor tool, stage 1b: real data for Kristian's views (2026-11-14)
+
+### Matching quality: mutual best matches (`db/lang_match.py`)
+A pair is **matched** when the fi and sv / en sentence are each other's best match **and** closer
+than 0.418 (`lang_pair.mutual`, `lang_pair.matched`). Stricter than stage 1: a sentence that only
+points at a partner whose own best match is another sentence no longer counts (typically one English
+sentence covering two Finnish ones: the second is now "missing").
+
+| hero | lang | fi sentences | matched (stage 1, best only) | matched (mutual) | **missing (mutual)** | best-only, not mutual |
+|---|---|---|---|---|---|---|
+| Sauli Niinistö | sv | 242 | 84 | 26 | **216** | 58 |
+| Sauli Niinistö | en | 242 | 160 | 84 | **158** | 76 |
+| Suomen sisällissota | sv | 870 | 241 | 79 | **791** | 159 |
+| Suomen sisällissota | en | 870 | 547 | 241 | **629** | 306 |
+
+So "missing in English" is 158 (was 82) for Niinistö and 629 (was 323) for the 1918 war. The
+best-only column is the price of mutuality: those sentences have a close English sentence that is
+shared with another Finnish sentence.
+
+### "Different subject" topics (`db/build_divergence.py`)
+Flag = whole-article distance above the **97th percentile** (fi–sv > 0.413 or fi–en > 0.393: 153
+topics) **and** under **10 %** of the shorter version's sentences matched, **and** that shorter
+version has at least **5 sentences**. The last rule was added after looking at the data: stubs are not
+different subjects (the 4-sentence Swedish *Röda gardet (Finland)* matches none of *Punakaarti*'s 474).
+To decide, the 153 candidates were embedded on CPU (`ingest.embed_cpu --extreme 97`: 23,140
+sentences, **23 min 27 s**, 18.4 sentences/s) and matched (175 topics, 14.6 s).
+
+**10 topics flagged** (left out of the worklist, `?include_flagged=1` shows them), e.g.:
+- *Lääninhallitus* (Finnish provincial office) | *County administrative boards of Sweden* — 0 % match
+- *Teollisuuspatruuna* | *Ironmaster* — 0 %
+- *Renki* (Finnish farmhand) | *Dräng* / *Farmworker* — 0 %
+- *Tykkimyssy* | *French hood* — 6 %
+- *Lapinkylä* (Sámi village) | *Siida* — 4 %
+Also Vouti / Fogde, Koulukoti / Approved school, Käräjäkunta / Tithing, the list of Finland's wars.
+**One looks wrong:** *Maunu Eerikinpojan maanlaki* | *Magnus Erikssons landslag* is the same law;
+the Finnish and Swedish texts just share no sentence closely enough.
+
+### Kristian's sentence tables loaded (all of dataset M, `article` not reloaded)
+`python -m ingest.replay --dataset large --workers 14 --sentences-only` → **8 min 44 s**
+(1,629 versions/s), after page 1150 alone (11 s).
+- New mode `--sentences-only`: `article` already holds all 862,076 versions and its history rows can't
+  be updated, so the per-version sentence order goes to a new table **`article_sentence_order`**
+  (rev_id → n_sentences, sentence_order, kept). A version dropped by his blanking-vandalism filter gets
+  the order of the last kept version, so a snapshot never shows vandal text. His queries
+  (`as_of_article`, `map`, `revision`, `revisions`) read it first, then `article`'s own columns
+  (so his `wiki_test` tests still pass).
+- 19,595 articles (147 are redirects / empty today: no sentences; their 597 versions have no order row).
+  Kept versions 857,477, dropped 4,002 → 857,477 + 4,002 + 597 = 862,076 ✔.
+- `article_sentence` **1,393,147 lives** (723 MB) · `article_sentence_order` 3.1 GB (the hash blobs) ·
+  `article_stats` 19,595 · `article_geo` 2,760 (geo index `python -m ingest.geo`: 7 s) ·
+  `sentence_event_time` 497,939 sentences with a year (`ingest.event_time`, 19 s).
+- **Checks:** 1150 keeps **3,345 versions** after his filter (12 dropped), 8,089 lives, the opening sentence
+  has **19 lives**, 338 reverts, 1,008 current sentences — all equal to his numbers. Niinistö's opening
+  sentence has had **83 lives**.
+- All his routes answer 200 on real data: as-of 17 ms, edit wars 15 ms, contested 168 ms, diff 21 ms,
+  term drift 107 ms, bitemporal about 288 ms, map 7 ms. **Drift is empty**: it needs `sentence_score`
+  (`python -m scoring.score`), which was not run.
+
+### Worklist + compare API (`api/editor.py`, format of `docs/contracts.md`)
+- `article_divergence` (`python -m db.build_divergence`, 0.2 s): 2,919 topics, 175 with sentence data,
+  all with an edit-war score. **Score = 0.6 · language difference + 0.4 · edit war** (percentile ranks).
+  *Decision:* "missing" is shown but not scored yet. With weight 0.2 it ranked exactly the topics that
+  happen to have sentence data first. It goes into the score when every topic has sentences (Verda).
+- Top of the worklist: Muinaissukset, Hämäläiset, Talonpoika, Perussuomalaiset Nuoret, Uhtua,
+  Suomen kansanvaltuuskunta … Suomen sisällissota rank 233, Niinistö 1,070.
+- `GET /api/worklist` 7 ms (50) / 79 ms (all 2,909); `GET /api/compare/{id}` 13 ms (Niinistö),
+  29 ms (1918 war, 1,369 rows) after adding `lang_pair.other_key`; without it 1.8 s.
+  Topics without sentences answer `rows: []` + `note` (recorded in contracts.md).
+- `tzdata` added to requirements (pyarrow needs it on Windows to read dataset M's times).
+- Tests: **69 passed** (new `api/tests/test_editor.py` checks both routes field by field against the mocks).

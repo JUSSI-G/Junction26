@@ -3,7 +3,10 @@ r"""Stage 1: embed the sentences of a few topics with bge-m3 on this PC's CPU, i
     .venv\Scripts\python -m ingest.embed_cpu --topics Q29207,Q211855 --null 12
 
 --null N also embeds N random other topics (fixed seed), the "unrelated articles" that
-db/lang_match.py uses to calibrate the match threshold. Rows already embedded are skipped.
+db/lang_match.py uses to calibrate the match threshold.
+--extreme P also embeds every topic whose whole-article fi–sv or fi–en distance is above the
+P-th percentile: the "different subject" candidates (db/build_divergence.py).
+Rows already embedded are skipped.
 Stage 2 replaces this with the Verda batch job (docs/contracts.md a).
 """
 from __future__ import annotations
@@ -35,6 +38,7 @@ def main() -> None:
     ap.add_argument("--topics", default="Q29207,Q211855")
     ap.add_argument("--null", type=int, default=0, help="also embed N random other topics")
     ap.add_argument("--seed", type=int, default=1918)
+    ap.add_argument("--extreme", type=float, default=0, help="also embed topics above this distance percentile")
     a = ap.parse_args()
     con = connect(dict_rows=False)
     cur = con.cursor()
@@ -46,6 +50,20 @@ def main() -> None:
         nulls = random.Random(a.seed).sample(others, a.null)
         print("null topics:", ",".join(nulls))
         topics += nulls
+    if a.extreme:
+        import numpy as np
+        from db.lang_distance import SQL as DIST_SQL
+        from common.db import connect as dconnect
+        dc = dconnect()
+        with dc.cursor() as c2:
+            c2.execute(DIST_SQL)
+            rows = c2.fetchall()
+        dc.close()
+        cut = {p: np.percentile([float(r[p]) for r in rows], a.extreme) for p in ("fi_sv", "fi_en")}
+        extreme = [r["wikidata_id"] for r in rows
+                   if float(r["fi_sv"]) > cut["fi_sv"] or float(r["fi_en"]) > cut["fi_en"]]
+        print(f"extreme topics (> p{a.extreme:g}: fi_sv {cut['fi_sv']:.3f}, fi_en {cut['fi_en']:.3f}): {len(extreme)}")
+        topics += [q for q in extreme if q not in topics]
     cur.execute("SELECT DISTINCT lang, page_id FROM lang_sentence")
     done = set(cur.fetchall())
 

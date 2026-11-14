@@ -21,6 +21,8 @@ const shots = [
   { name: 'story-1918-2014', url: '/?story=1&year=2014' },
   { name: 'place-tampere-2018', url: '/?year=2018&place=Tampere' },
   { name: 'sql-drawer', url: '/?year=2014&sql=arcs' },
+  { name: 'language-differences', url: '/?year=2026&metric=language' },
+  { name: 'language-differences-finland', url: '/?year=2026&metric=language&view=home' },
 ];
 const only = process.argv.slice(2);
 

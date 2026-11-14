@@ -15,7 +15,7 @@ import pymysql
 from common.db import ROOT, connect, settings
 
 TABLES = ["sentence_score", "sentence_event_time", "article_sentence", "article", "article_geo",
-          "article_stats", "load_log",
+          "article_stats", "load_log", "article_sentence_order",
           "article_list", "place", "page_place", "place_link", "heat_year",
           "revert", "page_origin", "arc_year", "year_caption"]
 RESET_LIMIT = 100_000   # --reset refuses to drop an `article` with more versions than this

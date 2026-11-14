@@ -41,6 +41,7 @@ class BuildResult:
     article_rows: list[tuple] = field(default_factory=list)    # history + current
     sentence_rows: list[tuple] = field(default_factory=list)   # history + current
     kept: list[ParsedRevision] = field(default_factory=list)
+    rev_ids: list[int] = field(default_factory=list)          # every revision, kept or dropped, in order
     revisions: int = 0
     dropped: int = 0
 
@@ -91,7 +92,8 @@ def build(page: Page, with_content: bool = False, filter_vandalism: bool = True)
     revs = parse(page)
     drop = _vandalism(revs) if filter_vandalism else set()
     kept = [r for i, r in enumerate(revs) if i not in drop]
-    res = BuildResult(page.page_id, page.title, revisions=len(revs), dropped=len(drop), kept=kept)
+    res = BuildResult(page.page_id, page.title, revisions=len(revs), dropped=len(drop), kept=kept,
+                      rev_ids=[r.rev.rev_id for r in revs])
 
     # hash -> [position, text, rev_id, editor, anon, prev_hash, start]
     open_lives: dict[bytes, list] = {}

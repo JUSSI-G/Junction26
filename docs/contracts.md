@@ -72,6 +72,9 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
            "edit_war_score": 0.74}]}
 ```
 - Ordered by `score` (descending); `score` is in 0..1, higher = needs an editor more.
+- Topics flagged as **different subject** (one Wikidata id, but the language versions are about
+  different things, e.g. *Renki* = a Finnish farmhand vs *Farmworker*) are left out;
+  `?include_flagged=1` puts them back, at the end of the list.
 - `fi_sv`, `fi_en`: whole-article cosine distance between the language versions.
 - `missing_sv` / `missing_en`: Finnish sentences with no match above the threshold in that language.
 - `contradictions`: pairs that Gemma labelled `contradiction`.
@@ -107,9 +110,15 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
   A fi sentence missing from **both** languages has `status: "missing_en"` and both `sv` and `en`
   are null.
 - `judgements` is `[]` until Gemma has run; `lang` says which pair (fi–sv or fi–en) it judges.
+- A topic without sentence data answers `200` with `"rows": []` and
+  `"note": "sentence data not computed yet for this topic"` (`topic` and `scores` are filled).
+- A sentence is matched when it and its partner are each other's best match (**mutual**) and their
+  distance is below **0.418**. Each sv / en sentence appears in at most one row.
 
 ## Changes
 
 - 2026-11-14: first version.
 - 2026-11-14: sentences are split with `text_sentences()` (new, for S's Markdown-like text), not
   `sentences()` / `split_sentences()`.
+- 2026-11-14: worklist `?include_flagged=`; compare `note` when there is no sentence data; matched =
+  mutual best match below 0.418. Both responses also carry `ms` (database time).

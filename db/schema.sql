@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS article_sentence (
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   WITH SYSTEM VERSIONING;
 
+-- The sentence order of every revision, when `article` was loaded before the sentence tables
+-- (the combined app: `article` holds every version and its history rows cannot be updated).
+-- One row per revision id; `kept` = 0 for a revision the vandalism filter dropped, which carries
+-- the order of the last kept revision. Queries read this first, then article.sentence_order.
+CREATE TABLE IF NOT EXISTS article_sentence_order (
+  rev_id          BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  page_id         INT UNSIGNED NOT NULL,
+  kept            BOOL NOT NULL,
+  n_sentences     INT UNSIGNED NOT NULL,
+  sentence_order  MEDIUMBLOB COMPRESSED,
+  KEY (page_id)
+);
+
 -- Gemma's judgement of a sentence (written by scoring/score.py). Not versioned: a sentence's
 -- text never changes, so neither does its score. Keyed by hash, shared across articles.
 CREATE TABLE IF NOT EXISTS sentence_score (
@@ -273,5 +286,8 @@ CREATE TABLE IF NOT EXISTS lang_pair (
   fi_sent      INT UNSIGNED NOT NULL,
   other_sent   INT UNSIGNED NOT NULL,
   distance     FLOAT        NOT NULL,          -- cosine distance
-  PRIMARY KEY (wikidata_id, other_lang, direction, fi_sent, other_sent)
+  mutual       BOOL NOT NULL DEFAULT 0,        -- each sentence is the other's best match
+  matched      BOOL NOT NULL DEFAULT 0,        -- mutual AND distance < 0.418 (db/lang_match.THRESHOLD)
+  PRIMARY KEY (wikidata_id, other_lang, direction, fi_sent, other_sent),
+  KEY other_key (wikidata_id, other_lang, direction, other_sent)    -- "only in sv / en" lookups
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

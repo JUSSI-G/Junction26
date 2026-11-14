@@ -261,3 +261,17 @@ body.story #metrics, body.story #metric-hint { display: none; }
 @media (max-width: 900px) { #legend { display: block; width: auto; right: 24px; } #sql-drawer { display: none; } }
 
 body.panel-open #brand p, body.story #brand p { display: none; }
+
+/* ---------------------------------------------------------------- language differences mode */
+.legend-lang { display: none; }
+body.lang-mode .legend-lang { display: block; }
+body.lang-mode #legend > .legend-row, body.lang-mode .legend-toggle { display: none; }
+body.lang-mode #caption, body.lang-mode #timeline, body.lang-mode #legend #legend-metric { display: none; }
+body.lang-mode #legend, body.lang-mode #sql-drawer { bottom: 24px; }
+.ramp-diff { background: linear-gradient(90deg, rgb(61, 220, 132), rgb(255, 200, 60), rgb(255, 90, 95)); }
+.dot-lang { width: 56px; flex: none; display: flex; justify-content: center; }
+.dot-lang::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: rgb(255, 200, 60); }
+#metrics .lang-btn { border-left: 1px solid var(--border); margin-left: 4px; padding-left: 14px; border-radius: 0 7px 7px 0; }
+.place-label.lang-end { background: rgba(255, 176, 32, 0.92); color: #1a1204; font-size: 12.5px; padding: 3px 7px; }
+.place-label.lang-end b { text-transform: uppercase; }
+.lang-tag { display: inline-block; min-width: 20px; text-align: center; border-radius: 4px; color: #111; font-weight: 600; padding: 0 4px; }

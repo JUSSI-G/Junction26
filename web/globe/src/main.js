@@ -30,7 +30,19 @@ const METRIC = {
                  size: 'more edits undone that year', unit: 'reverts' },
   rewritten: { hint: 'Links to each place that articles added or removed that year.',
                size: 'more links added or removed', unit: 'link changes' },
+  language: { hint: 'How much the Swedish and English Wikipedia articles differ from the Finnish one (today\'s text).',
+              size: 'more different', unit: '' },
 };
+// ---- language differences (the editor tool): article -> Stockholm (sv) / London (en)
+const LANG_END = {
+  sv: { lat: 59.3293, lon: 18.0686, title: 'sv', name: 'Swedish Wikipedia' },
+  en: { lat: 51.5072, lon: -0.1276, title: 'en', name: 'English Wikipedia' },
+};
+const DIFF_RAMP = [[61, 220, 132], [255, 200, 60], [255, 90, 95]];   // same -> different
+const diffT = (d) => Math.max(0, Math.min(1, (d - 0.15) / (0.40 - 0.15)));  // cosine distance p10..p97
+const compareUrl = (q) => `/contested/#compare/${q}`;
+let langLines = null;   // /api/lang-lines response (cached)
+const isLang = () => state.metric === 'language';
 // Finnish title, with the English Wikidata label when it says something different.
 const en = (d) => (d.en_label && d.en_label.toLowerCase() !== d.title.toLowerCase() ? d.en_label : '');
 const both = (d) => `${esc(d.title)}${en(d) ? ` <span class="en">${esc(en(d))}</span>` : ''}`;
@@ -62,6 +74,7 @@ async function getArcs(key, year) {
 let preloadRun = 0;
 async function preload() {
   const run = ++preloadRun;
+  if (isLang()) { $('preload-bar').style.opacity = 0; return; }
   const metric = heatKey(), key = arcKey();
   const jobs = [];
   for (const y of YEARS) { jobs.push(() => getHeat(metric, y)); jobs.push(() => getArcs(key, y)); }
@@ -147,17 +160,19 @@ const globe = new Globe($('globe'), { animateIn: false })
   .pointLat('lat').pointLng('lon')
   .pointsMerge(false)
   .pointsTransitionDuration(0)
-  .pointAltitude((d) => 0.007 + 0.012 * d.t)
-  .pointRadius((d) => zoom * (0.06 + 0.42 * d.t))
-  .pointColor((d) => rgba(ramp(POINT_RAMP, 0.15 + 0.85 * d.t), 0.7 + 0.28 * d.t))
-  .pointLabel((d) => `<div class="tip"><b>${both(d)}</b><br><span class="k">${esc(d.kind || d.category)}</span><br><b>${fmt(d.value)}</b> ${METRIC[state.metric].unit} in ${state.year}<br><span class="k">click for its articles</span></div>`)
-  .onPointClick((d) => openPlace(d.title))
+  .pointAltitude((d) => (d.lang ? 0.012 : 0.007 + 0.012 * d.t))
+  .pointRadius((d) => zoom * (d.lang ? 0.12 + 0.18 * d.t : 0.06 + 0.42 * d.t))
+  .pointColor((d) => (d.lang ? rgba(ramp(DIFF_RAMP, d.t), 0.95) : rgba(ramp(POINT_RAMP, 0.15 + 0.85 * d.t), 0.7 + 0.28 * d.t)))
+  .pointLabel((d) => (d.lang ? langTip(d.topic) : `<div class="tip"><b>${both(d)}</b><br><span class="k">${esc(d.kind || d.category)}</span><br><b>${fmt(d.value)}</b> ${METRIC[state.metric].unit} in ${state.year}<br><span class="k">click for its articles</span></div>`))
+  .onPointClick((d) => (d.lang ? (location.href = compareUrl(d.wikidata_id)) : openPlace(d.title)))
   // place names: DOM labels (crisp, full Finnish alphabet), decluttered in render()
   .htmlLat('lat').htmlLng('lon').htmlAltitude(0.02)
   .htmlTransitionDuration(0)
   .htmlElement((d) => {
     const el = document.createElement('div');
-    el.className = `place-label${d.changed ? ` ${d.changed}` : ''}`;
+    el.className = `place-label${d.changed ? ` ${d.changed}` : ''}${d.langEnd ? ' lang-end' : ''}`;
+    if (d.langEnd) { el.innerHTML = `<b>${d.title}</b> ${esc(d.name)}`; return el; }
+    if (d.lang) { el.innerHTML = esc(d.title); el.onclick = () => (location.href = compareUrl(d.wikidata_id)); return el; }
     el.innerHTML = labelText(d).length > d.title.length ? both(d) : esc(d.title);
     el.onclick = () => openPlace(d.title);
     return el;
@@ -169,16 +184,18 @@ const globe = new Globe($('globe'), { animateIn: false })
   .arcStartLat((d) => d.from.lat).arcStartLng((d) => d.from.lon)
   .arcEndLat((d) => d.to.lat).arcEndLng((d) => d.to.lon)
   .arcColor((d) => {
+    if (d.lang) { const c = ramp(DIFF_RAMP, d.t); return [rgba(c, 0.15 + 0.5 * d.t), rgba(c, 0.35 + 0.6 * d.t)]; }
     const a = d.status === 'same' ? (d.origin_inferred ? 0.06 : 0.14) : (d.origin_inferred ? 0.3 : 0.95);
     return [rgba(ARC[d.status], a * 0.55), rgba(ARC[d.status], a)];
   })
-  .arcStroke((d) => zoom * (d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
+  .arcStroke((d) => zoom * (d.lang ? 0.05 + 0.12 * d.t : d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
   .arcAltitudeAutoScale(0.16)
-  .arcDashLength((d) => (d.status === 'same' ? 1 : d.status === 'added' ? 0.55 : 0.25))
-  .arcDashGap((d) => (d.status === 'same' ? 0 : d.status === 'added' ? 0.25 : 0.2))
-  .arcDashAnimateTime((d) => (d.status === 'same' ? 0 : d.status === 'added' ? 2200 : 3600))
+  .arcDashLength((d) => (d.lang || d.status === 'same' ? 1 : d.status === 'added' ? 0.55 : 0.25))
+  .arcDashGap((d) => (d.lang || d.status === 'same' ? 0 : d.status === 'added' ? 0.25 : 0.2))
+  .arcDashAnimateTime((d) => (d.lang || d.status === 'same' ? 0 : d.status === 'added' ? 2200 : 3600))
   .arcsTransitionDuration(0)
   .arcLabel((d) => {
+    if (d.lang) return langTip(d.topic, d.lang);
     const n = d.weight;
     const word = { added: `+ link${n > 1 ? 's' : ''} added`, removed: `− link${n > 1 ? 's' : ''} removed`, same: 'unchanged' }[d.status];
     const arts = d.articles.slice(0, 5).map((a) => esc(a.title)).join('<br>');
@@ -187,9 +204,10 @@ const globe = new Globe($('globe'), { animateIn: false })
       <b>${esc(d.from.title)} → ${esc(d.to.title)}</b>${d.origin_inferred ? '<br><span class="k">start of the arc is a guess: the place this article links most</span>' : ''}
       <br><span class="k">${n > 1 ? `${fmt(n)} articles` : 'article'} about ${esc(d.from.title)}:</span><br>${arts}${more}</div>`;
   })
-  .onArcClick((d) => openArticle(d.articles[0].page_id));
+  .onArcClick((d) => (d.lang ? (location.href = compareUrl(d.topic.wikidata_id)) : openArticle(d.articles[0].page_id)));
 
 const HOME = { lat: 61.2, lng: 23.5, altitude: 0.62 };
+const EUROPE = { lat: 57.5, lng: 13, altitude: 1.05 };   // Finland, Stockholm and London in one view
 globe.pointOfView(HOME, 0);
 globe.controls().autoRotate = false;
 window.addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
@@ -205,6 +223,8 @@ async function render() {
   document.querySelectorAll('#metrics button').forEach((b) => b.classList.toggle('on', b.dataset.metric === metric));
   $('legend-metric').textContent = METRIC[metric].size;
   $('metric-hint').textContent = METRIC[metric].hint;
+  document.body.classList.toggle('lang-mode', isLang());
+  if (isLang()) { await renderLanguage(seq); return; }
   renderCaption();
 
   const [heat, arcs] = await Promise.all([getHeat(metric, year), getArcs(arcKey(), year)]);
@@ -261,6 +281,41 @@ async function render() {
   renderSql();
 }
 
+// ------------------------------------------------------------------ language differences
+function langTip(t, only = null) {
+  const line = (l) => {
+    const d = t[`fi_${l}`], miss = t[`missing_${l}`];
+    return `<span class="lang-tag" style="background:${rgba(ramp(DIFF_RAMP, diffT(d)), 0.9)}">${l}</span> `
+      + `distance <b>${d.toFixed(3)}</b>${miss != null ? ` · ${fmt(miss)} Finnish sentences missing` : ''}`;
+  };
+  return `<div class="tip"><b>${esc(t.titles.fi)}</b>${t.titles.en !== t.titles.fi ? ` <span class="en">${esc(t.titles.en)}</span>` : ''}<br>
+    ${(only ? [only] : ['sv', 'en']).map(line).join('<br>')}<br><span class="k">click to compare fi / sv / en</span></div>`;
+}
+
+async function renderLanguage(seq) {
+  langLines ||= await api('/api/lang-lines');
+  if (seq !== renderSeq) return;
+  for (const f of countryFeatures) { f.__t = null; f.__tip = ''; f.__top = null; }
+  globe.polygonCapColor(() => 'rgba(20,27,42,0.72)');
+  globe.polygonsData(countryFeatures);
+  const topics = langLines.data;
+  const dots = topics.map((t) => ({ lang: true, topic: t, wikidata_id: t.wikidata_id, title: t.titles.fi,
+    lat: t.lat, lon: t.lon, value: Math.max(t.fi_sv, t.fi_en), t: diffT(Math.max(t.fi_sv, t.fi_en)) }));
+  globe.pointsData(dots);
+  // Most different on top: draw the calm lines first.
+  const lines = topics.flatMap((t) => ['sv', 'en'].map((l) => ({ lang: l, topic: t, t: diffT(t[`fi_${l}`]),
+    from: { lat: t.lat, lon: t.lon }, to: LANG_END[l] }))).sort((a, b) => a.t - b.t);
+  globe.arcsData(lines);
+  $('lang-count').textContent = fmt(topics.length);
+  // Labels: the two languages, then the most different articles.
+  labelPool = [{ ...LANG_END.sv, langEnd: true }, { ...LANG_END.en, langEnd: true },
+    ...[...dots].sort((a, b) => b.value - a.value)];
+  placeLabels();
+  lastSql.heat = { sql: langLines.sql, ms: langLines.ms, built_from: '-- article_divergence: python -m db.build_divergence (VEC_DISTANCE_COSINE between the bge-m3 article vectors)' };
+  lastSql.arcs = lastSql.heat;
+  renderSql();
+}
+
 // The sentence for the year: totals, and the single edit that changed the most place links.
 let captions = null;                       // /api/captions response
 const tidy = (c) => String(c || '').replace(/\/\*\s*(.*?)\s*\*\//g, '$1: ').replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1').replace(/:\s*$/, '').trim();
@@ -296,6 +351,7 @@ function placeLabels() {
   const sel = panelView?.type === 'place' ? labelPool.find((d) => d.title === panelView.title) : null;
   for (const d of sel ? [sel, ...labelPool] : labelPool) {
     if (d === sel && shown.length) continue;
+    if (d.langEnd) { shown.push(d); continue; }
     if (shown.length >= max) break;
     const cos = Math.cos((d.lat * Math.PI) / 180);
     // wider labels need more room sideways (about 9 characters fit in minDeg)
@@ -444,7 +500,10 @@ $('play').onclick = () => play(!state.playing);
 $('year').oninput = (e) => { if (state.story !== null) exitStory(false); setYear(+e.target.value); };
 $('ticks').innerHTML = YEARS.map((y) => `<span data-y="${y}">${y % 2 === 0 ? `’${String(y).slice(2)}` : ''}</span>`).join('');
 document.querySelectorAll('#metrics button').forEach((b) => (b.onclick = () => {
+  const wasLang = isLang();
   state.metric = b.dataset.metric;
+  if (isLang() && !wasLang) { closePanel(); globe.pointOfView(EUROPE, 1200); setTimeout(() => { rescale(); placeLabels(); }, 1300); }
+  if (!isLang() && wasLang) { globe.pointOfView(HOME, 1200); setTimeout(() => { rescale(); placeLabels(); }, 1300); }
   render();
   preload();
 }));
@@ -505,6 +564,7 @@ $('story-exit').onclick = () => { exitStory(); globe.pointOfView(HOME, 1200); };
     const step = Math.max(0, STORY.findIndex((s) => s.year === state.year));
     startStory(params.get('autoplay') === '1', step);
   } else {
+    if (isLang() && params.get('view') !== 'home') { globe.pointOfView(EUROPE, 0); rescale(); }
     await render();
     preload();
     if (params.get('place')) openPlace(params.get('place'));
