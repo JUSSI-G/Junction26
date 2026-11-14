@@ -49,11 +49,36 @@ docker compose run --rm app python -m scoring.score          # or with SCORING_U
 docker compose run --rm app python -m db.benchmark --record
 ```
 
+## 4. GPU: sentence embeddings (docs/contracts.md a)
+
+`scripts/verda/embed_sentences.py`: dataset S (`data/s`), the 2,919 topics in fi + sv + en, split with
+`ingest.sentences.text_sentences()`, embedded with BAAI/bge-m3 (sentence-transformers,
+`normalize_embeddings=True`, same as `ingest/embed_cpu.py`) → `data/verda/sentences-{fi,sv,en}.parquet`
++ `embed_run.json` (device, timings, sentences/s). Device auto: CUDA (fp16, batch 256) if present, else CPU.
+
+```bash
+# on the Verda GPU instance
+pip install -r scripts/verda/requirements.txt
+# copy data/s/articles-{fi,sv,en}.parquet (37 MB) to the instance, then:
+python scripts/verda/embed_sentences.py              # all 2,919 topics
+```
+
+**CPU test first (laptop, 2026-11-14):** `--pages "Sauli Niinistö,Suomen sisällissota"`, Intel i9-8950HK
+(6 cores, torch 6 threads), torch 2.2.2 CPU, sentence-transformers 3.3.1, fp32, batch 32:
+**2,145 sentences in 328 s = 6.5 sentences/s** (fi 1,112 · sv 306 · en 727; model load 74 s, wall 408 s).
+Sentence counts equal Jussi's stage 1 split exactly (Niinistö 242/45/169, 1918 war 870/261/558), all
+vectors 1024-dim with norm 1.0. For comparison Jussi's Windows PC did 13.7 sentences/s (16 threads).
+At 6.5/s all 2,919 topics would take many hours on this laptop: that is the case for the GPU.
+
+Intel Mac note: current torch has no Intel-Mac build (stops at 2.2.2) and transformers 5 needs torch ≥ 2.6,
+so the laptop pins transformers 4.46 / sentence-transformers 3.3 / numpy < 2 / pyarrow < 20 (see
+`scripts/verda/requirements.txt`). Same model weights, so `model` stays `bge-m3`; Ollama was not needed.
+
 ## Log
 
 | Time | What | Machine | Result |
 |---|---|---|---|
-| | | | |
+| 2026-11-14 17:57 | embed_sentences.py, 2 hero topics (CPU test) | laptop i9-8950HK, CPU | 2,145 sentences, 6.5 sentences/s |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 
