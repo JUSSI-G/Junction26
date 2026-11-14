@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rewritten — how Finnish Wikipedia told its history</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%277%27 fill=%27%23ffb020%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="globe"></div>
+
+  <header id="brand">
+    <h1>Rewritten</h1>
+    <p>How Finnish Wikipedia told Finland's history, 2004–2026</p>
+    <button id="story-btn" class="btn accent" title="Follow one article: Suomen sisällissota">▶ Story: 1918</button>
+  </header>
+
+  <nav id="metrics" role="tablist" aria-label="Heat metric">
+    <button data-metric="knowledge" title="Links pointing to the place on 1 Jan, plus KB written about it">Knowledge</button>
+    <button data-metric="activity" title="Edits that year to articles at or linking the place">Activity</button>
+    <button data-metric="controversy" title="Reverts that year in those articles">Controversy</button>
+    <button data-metric="rewritten" title="Place links added + removed that year">Rewritten</button>
+  </nav>
+
+  <div id="story-card" hidden>
+    <div class="story-head"><span id="story-title">1918 · Suomen sisällissota</span><button id="story-exit" class="btn small">Exit story</button></div>
+    <p id="story-text"></p>
+    <p id="story-counts"></p>
+    <div id="story-dots"></div>
+  </div>
+
+  <aside id="legend">
+    <div class="legend-title" id="legend-metric">Knowledge</div>
+    <div class="legend-row"><span class="ramp ramp-point"></span><span>places (low → high)</span></div>
+    <div class="legend-row"><span class="ramp ramp-country"></span><span>countries (low → high)</span></div>
+    <div class="legend-title">Place links that year</div>
+    <div class="legend-row"><span class="line added"></span><span>+ added</span><b id="n-added">0</b></div>
+    <div class="legend-row"><span class="line removed"></span><span>− removed</span><b id="n-removed">0</b></div>
+    <div class="legend-row"><span class="line same"></span><span>unchanged</span><b id="n-same">0</b></div>
+    <div class="legend-note">Dimmer arc = origin inferred from the article's most-linked place</div>
+  </aside>
+
+  <aside id="panel" hidden>
+    <button id="panel-close" class="btn small" aria-label="Close panel">✕</button>
+    <div id="panel-body"></div>
+  </aside>
+
+  <section id="sql-drawer" class="closed">
+    <button id="sql-toggle" class="btn small">SQL <span id="sql-ms"></span></button>
+    <div id="sql-content">
+      <div id="sql-tabs">
+        <button data-tab="heat" class="on">Heat</button>
+        <button data-tab="arcs">Arcs</button>
+        <button data-tab="panel">Panel</button>
+      </div>
+      <pre id="sql-text"></pre>
+    </div>
+  </section>
+
+  <footer id="timeline">
+    <button id="play" class="btn round" aria-label="Play">▶</button>
+    <div id="year-big">2004</div>
+    <div id="slider-wrap">
+      <input id="year" type="range" min="2004" max="2026" step="1" value="2004" aria-label="Year">
+      <div id="ticks"></div>
+      <div id="preload"><div id="preload-bar"></div></div>
+    </div>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

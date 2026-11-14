@@ -66,3 +66,20 @@ ON DUPLICATE KEY UPDATE rewritten = VALUES(rewritten)"""],
 def for_year(sql, year):
     return sql.format(year=int(year), y0=f"{int(year)}-01-01 00:00:00",
                       y1=f"{int(year) + 1}-01-01 00:00:00")
+
+
+# Where an article's arcs start, per year. Its own location (page_place) when it has one; otherwise
+# inferred: the non-country place it linked most at any moment of the year (ties: the oldest link).
+ORIGIN = [
+    """INSERT INTO page_origin (year, page_id, place_title, inferred)
+SELECT {year}, page_id, place_title, 0 FROM page_place""",
+    """INSERT IGNORE INTO page_origin (year, page_id, place_title, inferred)
+SELECT {year}, page_id, to_place, 1
+FROM (SELECT l.page_id, l.to_place,
+             ROW_NUMBER() OVER (PARTITION BY l.page_id
+                                ORDER BY l.mentions DESC, l.row_start, l.to_place) AS rn
+      FROM place_link FOR SYSTEM_TIME FROM TIMESTAMP'{y0}' TO TIMESTAMP'{y1}' l
+      JOIN place p ON p.title = l.to_place
+      WHERE p.is_country = 0) ranked
+WHERE rn = 1""",
+]

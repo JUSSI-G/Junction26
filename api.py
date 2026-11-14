@@ -5,7 +5,7 @@ parameter values filled in for reading, and the database time in ms ("ms").
 
 GET /api/years                         years with heat data
 GET /api/heat?year=&metric=            [{title, lat, lon, value, kind, category, is_country}]
-GET /api/arcs?year=&limit=             [{from, to, weight, status: added|removed|same, pages}]
+GET /api/arcs?year=&limit=&page=       [{from, to, weight, status: added|removed|same, origin_inferred, articles}]
 GET /api/place/{title}?date=           articles located at / linking the place as of the date
 GET /api/article/{page_id}?date=       the article as of the date, edits and reverts up to then
 """
@@ -13,7 +13,9 @@ import time
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from common import connect
+from fastapi.staticfiles import StaticFiles
+import os
+from common import connect, ROOT
 from heat_sql import METRICS, for_year
 from textclean import clean
 
@@ -78,7 +80,7 @@ def heat(year: int, metric: str = "knowledge"):
     check_year(year)
     if metric not in METRICS:
         raise HTTPException(400, f"metric must be one of {', '.join(METRICS)}")
-    sql = f"""SELECT h.place_title AS title, p.lat, p.lon, h.{metric} AS value,
+    sql = f"""SELECT h.place_title AS title, p.qid, p.lat, p.lon, h.{metric} AS value,
        p.kind, p.category, p.is_country
 FROM heat_year h JOIN place p ON p.title = h.place_title
 WHERE h.year = ? AND h.{metric} > 0
@@ -90,10 +92,12 @@ ORDER BY value DESC"""
             "built_from": "\n\n".join(for_year(s, year) for s in METRICS[metric]), "data": rows}
 
 
-# One arc per (origin place, linked place, status). origin = the article's own place (page_place).
+# One arc per (origin place, linked place, status). The origin comes from page_origin: the article's
+# own place (page_place), or — inferred — the non-country place it linked most that year.
 ARCS_SQL = """SELECT f.title AS from_title, f.lat AS from_lat, f.lon AS from_lon,
        t.title AS to_title, t.lat AS to_lat, t.lon AS to_lon,
-       x.status, COUNT(DISTINCT x.page_id) AS weight, GROUP_CONCAT(DISTINCT x.page_id) AS pages
+       x.status, o.inferred AS origin_inferred, COUNT(DISTINCT x.page_id) AS weight,
+       GROUP_CONCAT(DISTINCT CONCAT(x.page_id, ':', a.title) ORDER BY a.title SEPARATOR '|') AS articles
 FROM (
   -- green: link added during the year
   SELECT page_id, to_place, 'added' AS status
@@ -110,24 +114,31 @@ FROM (
   FROM place_link FOR SYSTEM_TIME AS OF TIMESTAMP'{y1}'
   WHERE row_start < TIMESTAMP'{y0}'
 ) x
-JOIN page_place pp ON pp.page_id = x.page_id
-JOIN place f ON f.title = pp.place_title
+JOIN page_origin o ON o.page_id = x.page_id AND o.year = {year}
+JOIN place f ON f.title = o.place_title
 JOIN place t ON t.title = x.to_place
-WHERE f.title <> t.title
-GROUP BY f.title, t.title, x.status
-ORDER BY FIELD(x.status, 'added', 'removed', 'same'), weight DESC, t.title
+JOIN article a ON a.page_id = x.page_id
+WHERE f.title <> t.title{page_filter}
+GROUP BY f.title, t.title, x.status, o.inferred
+ORDER BY FIELD(x.status, 'added', 'removed', 'same'), weight DESC, o.inferred, t.title
 LIMIT {limit}"""
 
 
 @app.get("/api/arcs")
-def arcs(year: int, limit: int = Query(200, ge=1, le=5000)):
+def arcs(year: int, limit: int = Query(200, ge=1, le=5000), page: int | None = None):
     check_year(year)
-    sql = for_year(ARCS_SQL.replace("{limit}", str(int(limit))), year)
+    sql = ARCS_SQL.replace("{limit}", str(int(limit)))
+    sql = sql.replace("{page_filter}", f" AND x.page_id = {int(page)}" if page is not None else "")
+    sql = for_year(sql, year)
     rows, ms = query(sql)
-    data = [{"from": {"title": r["from_title"], "lat": r["from_lat"], "lon": r["from_lon"]},
-             "to": {"title": r["to_title"], "lat": r["to_lat"], "lon": r["to_lon"]},
-             "weight": r["weight"], "status": r["status"],
-             "pages": [int(p) for p in str(r["pages"]).split(",")]} for r in rows]
+    data = []
+    for r in rows:
+        arts = [x.split(":", 1) for x in str(r["articles"]).split("|")]
+        data.append({"from": {"title": r["from_title"], "lat": r["from_lat"], "lon": r["from_lon"]},
+                     "to": {"title": r["to_title"], "lat": r["to_lat"], "lon": r["to_lon"]},
+                     "weight": r["weight"], "status": r["status"],
+                     "origin_inferred": bool(r["origin_inferred"]),
+                     "articles": [{"page_id": int(p), "title": t} for p, t in arts]})
     return {"sql": sql, "ms": ms, "data": data}
 
 
@@ -194,3 +205,9 @@ def article(page_id: int, date: str | None = None):
             "edits_to_date": int(stats[0]["edits"]), "reverts_to_date": int(stats[0]["reverts"]),
             "first_edit": str(stats[0]["first_edit"]),
             "blocks": [{"kind": k, "text": t} for k, t in clean(a["text"])]}
+
+
+# The built frontend (web/dist, from `npm run build` in web/), so one command serves everything.
+_dist = os.path.join(ROOT, "web", "dist")
+if os.path.isdir(_dist):
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="web")

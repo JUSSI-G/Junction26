@@ -8,7 +8,7 @@ Rebuilds both tables from scratch every run.
 """
 import argparse, time
 from common import connect
-from heat_sql import REVERTS, METRICS, for_year
+from heat_sql import REVERTS, METRICS, ORIGIN, for_year
 
 YEARS = range(2004, 2027)
 
@@ -42,6 +42,18 @@ cur.execute("""UPDATE heat_year SET knowledge = COALESCE(knowledge, 0), activity
 con.commit()
 print("heat_year built: " + ", ".join(f"{m} {s:.1f} s" for m, s in timings.items())
       + f" ({len(YEARS)} years)")
+
+t = time.time()
+cur.execute("DROP TABLE IF EXISTS page_origin")
+cur.execute("""CREATE TABLE page_origin (year SMALLINT NOT NULL, page_id INT UNSIGNED NOT NULL,
+               place_title VARCHAR(255) NOT NULL, inferred BOOL NOT NULL,
+               PRIMARY KEY (year, page_id)) CHARACTER SET utf8mb4""")
+for year in YEARS:
+    for sql in ORIGIN:
+        cur.execute(for_year(sql, year))
+con.commit()
+cur.execute("SELECT COUNT(*), SUM(inferred), COUNT(DISTINCT page_id) FROM page_origin")
+print("page_origin: %s rows, %s inferred, %s articles" % cur.fetchone() + f" ({time.time() - t:.1f} s)")
 
 cur.execute("SELECT COUNT(*), COUNT(DISTINCT place_title) FROM heat_year")
 rows, places = cur.fetchone()

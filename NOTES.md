@@ -331,3 +331,79 @@ GET /api/article/1150?date=2010-01-01
   (2018: 19 added, 0 removed). The heatmap still counts them. Worth a fallback origin later
   (e.g. the article's most-linked place).
 - 1150 sits at Suomi's centroid (65 N, 27 E), so all its arcs fan out from central Finland.
+
+## Stage 4b: fallback arc origins + page filter (2026-11-14)
+
+- New plain table **`page_origin (year, page_id, place_title, inferred)`**, built in `build_heat.py`
+  (0.1 s). Own location from `page_place` (inferred = 0); otherwise the **non-country place the
+  article linked most at any moment of the year** (`place_link FOR SYSTEM_TIME FROM … TO …`,
+  `ROW_NUMBER() … ORDER BY mentions DESC, row_start`; ties go to the oldest link). 921 rows, 484
+  inferred; **49 of 50 articles** now have an origin (was 19).
+- `/api/arcs` joins `page_origin` and returns **`origin_inferred`** and `articles: [{page_id, title}]`
+  (was `pages`). New optional **`page=`** filter (arcs of one article). `/api/heat` now returns `qid`.
+- 2018, limit 500: 164 added (145 inferred), 4 removed, 332 unchanged; 14 ms.
+  `/api/arcs?year=2014&page=1150`: 31 added, 7 removed, 97 unchanged; 9 ms.
+- Some inferred origins are odd (Mannerheim → Lausanne, Kekkonen → Pielavesi, Suomi 1980-luvulla →
+  Oulu): "most-linked" is often a birthplace or a tie. They are drawn dimmer for that reason.
+
+## Stage 5: globe frontend (2026-11-14)
+
+**Run everything with one command** (after building the frontend once):
+```powershell
+cd web; npm install; npm run build; cd ..
+.venv\Scripts\python -m uvicorn api:app --port 8000     # then open http://127.0.0.1:8000
+```
+`api.py` serves `web/dist` itself. For frontend work: `cd web; npm run dev` (proxies `/api` to :8000).
+`web/dist/` is gitignored, so a fresh clone needs the build step.
+
+- **Stack:** Vite + globe.gl, plain JS, no framework. `web/src/main.js` (logic), `style.css`,
+  `historical.js` (lookup table). Textures are copied from the three-globe package into `web/public`,
+  so the demo needs no internet.
+- **Countries as polygons:** Natural Earth 110m (177 countries, trimmed to 175 KB in
+  `web/public/countries.geojson`), matched by `WIKIDATAID` = `place.qid`. 47 historical countries map
+  to a modern polygon in `historical.js` (Neuvostoliitto / Venäjän keisarikunta / Neuvosto-Venäjä →
+  Russia, Natsi-Saksa / Weimarin tasavalta → Germany, Suomen suuriruhtinaskunta → Finland …).
+  A polygon's heat is the **max** of its places, not the sum: the same articles link several eras, and
+  the sum made Russia swamp the globe. Countries with no polygon at 110m (Malta, Kap Verde) are points.
+- **Heat points, not `heatmapsData`:** globe.gl's heatmap layer needs a bandwidth of degrees, which
+  smears Finnish towns into one blob, and it isn't clickable. Places are flat discs, size and colour on
+  a **sqrt scale against the metric's maximum over all years**, so years are comparable and growth is
+  visible during playback. Top 1,500 points only (for full scale).
+- **Arcs:** green = added, red = removed (slower, shorter dashes), faint grey = unchanged; inferred
+  origins dimmer and thinner. Limit 500 per year (changes first). Hover = tooltip with article titles;
+  click = the article.
+- **Place names** are DOM labels (three.js text lacked ä/ö), strongest first, decluttered by distance,
+  recomputed after zoom.
+- **Side panel:** click a place → fly-to + its articles as of 31 Dec of the slider year (2026 = today);
+  click an article → text on that day, edits and reverts so far, `?oldid=` link. Clicking a country
+  opens its top place, with chips for the other eras.
+- **Story: 1918** button: arcs filtered to page 1150, steps 2005 → 2010 → 2014 → 2018 → now every 6 s,
+  with a caption, live counts, the article in the panel, and labels on the places whose links changed
+  (removed first).
+- **SQL drawer:** tabs Heat (the read query + the SVT query that built that year), Arcs, Panel;
+  `FOR SYSTEM_TIME …` highlighted; shows DB ms.
+- **Preload:** all 23 years of heat for the metric and of arcs are fetched in the background (6 at a
+  time, thin progress line on the slider), so playback doesn't wait on the network.
+- **URL parameters** for demo and tests: `?year=2014&metric=rewritten`, `&sql=1`, `&place=Tampere`,
+  `?story=1&year=2014` (`&autoplay=1`).
+
+### Checked with Playwright
+`cd web; npm run screenshots` (uses the installed Edge via `playwright-core`, no browser download; app
+must be running). Saved in `docs/screenshots/`: `2005-knowledge`, `2014-rewritten`, `2018-knowledge`,
+`2007-controversy-sql`, `place-tampere-2018`, `story-1918-2005/2014/2018`.
+Fixed after looking at the first round:
+- arcs were far too thick when zoomed in and flew off the globe → thinner strokes, lower altitude;
+- place names overlapped and showed "H?meenlinna" → DOM labels with declutter;
+- Russia's polygon swamped activity/controversy → max instead of sum, calmer blue ramp;
+- side panel ran under the timeline → timeline, metric toggle and story card make room;
+- heat points were barely visible at the overview zoom → larger minimum size;
+- story labels hid the removed places (Tampere, Suomenlinna) → removed first.
+
+### Known limits
+- Not tested by hand in a real browser: play/pause, hover tooltips and the story autoplay were only
+  exercised through URL parameters and screenshots (headless Edge, software rendering).
+- In 2005 knowledge points are tiny by design (scale is against the all-years maximum).
+- 1150's own location is Suomi's centroid, so story arcs fan out from central Finland.
+- JS bundle is 1.95 MB (three.js); fine locally.
+- When `places.py --all` finishes it rewrites `place`/`page_place` for all articles without the camp
+  category; rerun `places.py --all --no-lookup`, `place_links.py`, `build_heat.py` afterwards.
