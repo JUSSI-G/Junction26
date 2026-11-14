@@ -212,6 +212,10 @@ def main() -> None:
     ap.add_argument("--topics", default="Q29207,Q211855", help="wikidata ids, comma-separated")
     ap.add_argument("--threshold", type=float, default=0.418)
     ap.add_argument("--concurrency", type=int, default=32)
+    ap.add_argument("--topics-file", type=Path, help="one wikidata id per line (text after # ignored); overrides --topics")
+    ap.add_argument("--tag", help="write judgements-<tag>.parquet / judgements-detail-<tag>.csv / judge_run-<tag>.json")
+    ap.add_argument("--only-pairs", type=Path, help="judge only the pairs in this judgements parquet …")
+    ap.add_argument("--only-label", help="… that have this label there (e.g. contradiction)")
     ap.add_argument("--limit", type=int, help="judge only the first N pairs (prompt testing)")
     ap.add_argument("--no-schema", action="store_true", help="for endpoints without json_schema support")
     ap.add_argument("--gpu", default=None, help="GPU name for the run log, e.g. 'A100 80GB'")
@@ -222,7 +226,11 @@ def main() -> None:
     if not url or not model:
         sys.exit("Set SCORING_URL (OpenAI-compatible base URL, …/v1), GEMMA_MODEL and SCORING_API_KEY in .env")
 
-    topics = [q.strip() for q in a.topics.split(",") if q.strip()]
+    if a.topics_file:
+        topics = [ln.split("#", 1)[0].strip() for ln in a.topics_file.read_text(encoding="utf-8").splitlines()]
+        topics = list(dict.fromkeys(q for q in topics if q))
+    else:
+        topics = [q.strip() for q in a.topics.split(",") if q.strip()]
     sents = load_sentences(topics)
     titles = {r["wikidata_id"]: r["title"] for r in pq.read_table(
         ROOT / "data" / "s" / "articles-fi.parquet", columns=["wikidata_id", "title"]).to_pylist()
@@ -244,6 +252,11 @@ def main() -> None:
                 items.append({"wikidata_id": q, "title": titles.get(q, q), "fi_sent_no": fi["sent_no"][i],
                               "fi_text": fi["text"][i], "other_lang": lang, "other_sent_no": other["sent_no"][j],
                               "other_text": other["text"][j], "distance": d})
+    if a.only_pairs:
+        keep = {(r["wikidata_id"], r["fi_sent_no"], r["other_lang"], r["other_sent_no"])
+                for r in pq.read_table(a.only_pairs).to_pylist() if not a.only_label or r["label"] == a.only_label}
+        items = [it for it in items if (it["wikidata_id"], it["fi_sent_no"], it["other_lang"], it["other_sent_no"]) in keep]
+        print(f"--only-pairs: {len(items):,} of {len(keep):,} listed pairs found", flush=True)
     if a.limit:
         items = items[:a.limit]
     print(f"judging {len(items):,} pairs with {model} at {url} (concurrency {a.concurrency})", flush=True)
@@ -256,6 +269,7 @@ def main() -> None:
     ended = time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
     rows = [{**it, **res, "model": model} for it, res in zip(items, results) if res]
+    sfx = f"-{a.tag}" if a.tag else ""
     DATA.mkdir(parents=True, exist_ok=True)
     cols = ["wikidata_id", "fi_sent_no", "other_lang", "other_sent_no", "label", "reason", "tone_fi", "tone_other",
             "fi_claim", "other_claim", "same_specific_fact", "model"]
@@ -264,8 +278,8 @@ def main() -> None:
                         ("tone_fi", pa.string()), ("tone_other", pa.string()), ("fi_claim", pa.string()),
                         ("other_claim", pa.string()), ("same_specific_fact", pa.bool_()), ("model", pa.string())])
     pq.write_table(pa.Table.from_pylist([{c: r[c] for c in cols} for r in rows], schema=schema),
-                   DATA / "judgements.parquet")
-    with open(DATA / "judgements-detail.csv", "w", newline="", encoding="utf-8") as f:
+                   DATA / f"judgements{sfx}.parquet")
+    with open(DATA / f"judgements-detail{sfx}.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["wikidata_id", "title", "fi_sent_no", "other_lang", "other_sent_no",
                                           "distance", "label", "same_specific_fact", "downgraded", "tone_fi", "tone_other",
                                           "reason", "fi_claim", "other_claim", "fi_text", "other_text"],
@@ -274,7 +288,9 @@ def main() -> None:
 
     labels = {lang: dict(Counter(r["label"] for r in rows if r["other_lang"] == lang)) for lang in ("sv", "en")}
     run_log = {
-        "model": model, "endpoint": url.split("//")[-1].split("/")[0], "topics": topics, "threshold": a.threshold,
+        "model": model, "endpoint": url.split("//")[-1].split("/")[0], "tag": a.tag,
+        "topics": len(topics), "topics_with_pairs": len({it["wikidata_id"] for it in items}),
+        "only_pairs": str(a.only_pairs) if a.only_pairs else None, "only_label": a.only_label, "threshold": a.threshold,
         "concurrency": a.concurrency, "pairs": len(items), "judged": len(rows), "failed": judge.failed,
         "responses": judge.responses, "invalid_json": judge.invalid,
         "invalid_json_rate": round(judge.invalid / judge.responses, 4) if judge.responses else None,
@@ -286,7 +302,7 @@ def main() -> None:
         "same_specific_fact_true": sum(r["same_specific_fact"] for r in rows), "gpu": a.gpu, "eur_per_hour": a.eur_per_hour,
         "cost_eur_run": round(a.eur_per_hour * wall / 3600, 4) if a.eur_per_hour else None,
     }
-    (DATA / "judge_run.json").write_text(json.dumps(run_log, indent=2), encoding="utf-8")
+    (DATA / f"judge_run{sfx}.json").write_text(json.dumps(run_log, indent=2), encoding="utf-8")
     print(json.dumps(run_log, indent=2))
 
 
