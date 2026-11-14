@@ -39,16 +39,20 @@ LANG_NAME = {"fi": "Finnish", "sv": "Swedish", "en": "English"}
 LABELS = ["same", "contradiction", "framing", "partial"]
 TONES = ["neutral", "loaded", "partisan"]
 
-# "reason" first: with guided decoding the model writes its reason before it commits to a label.
+# Order matters with guided decoding: the model first writes down the specific fact each sentence
+# states and whether it is the same fact, then its reason, and only then commits to a label.
 SCHEMA = {
     "type": "object",
     "properties": {
+        "fi_claim": {"type": "string", "maxLength": 200},
+        "other_claim": {"type": "string", "maxLength": 200},
+        "same_specific_fact": {"type": "boolean"},
         "reason": {"type": "string", "maxLength": 300},
         "label": {"type": "string", "enum": LABELS},
         "tone_fi": {"type": "string", "enum": TONES},
         "tone_other": {"type": "string", "enum": TONES},
     },
-    "required": ["reason", "label", "tone_fi", "tone_other"],
+    "required": ["fi_claim", "other_claim", "same_specific_fact", "reason", "label", "tone_fi", "tone_other"],
     "additionalProperties": False,
 }
 
@@ -58,21 +62,28 @@ Article: "{title}"
 Finnish sentence: "{fi}"
 {other_name} sentence: "{other}"
 
-Decide how the {other_name} sentence relates to the Finnish one. Labels:
-- "same": they make the same claim (wording and translation differences do not matter).
-- "contradiction": they disagree on a fact: a number, date, name or place that cannot both be true.
-  First ask whether both statements could be true at the same time; if they could, it is NOT a
-  contradiction. Different precision ("about 400" vs "375") or fewer details is NOT a contradiction.
-- "framing": the same fact, told with a different slant, emphasis or tone (e.g. a value judgement,
-  loaded word or attribution present in one and not the other).
-- "partial": one sentence says only part of what the other says, or they overlap only partly
-  (including when they are about related but different claims).
-
+Step 1. "fi_claim" and "other_claim": in English, the specific fact each sentence states (who / what /
+how many / when), in a few words.
+Step 2. "same_specific_fact": true only if both sentences state a value for the very same thing: the same
+quantity, event, date or name, with the same scope (same place, time span, group and kind of count).
+"Losses in one battle" and "losses in the whole war", "one regiment" and "the whole army",
+"the 2012 election" and "the 2018 election" are NOT the same specific fact.
+Step 3. "reason": one short English sentence naming the concrete difference (or "Same claim.").
+Step 4. "label", by these rules:
+- "contradiction": ONLY if same_specific_fact is true AND the two values clearly disagree, so both
+  cannot be true (e.g. born 1948 vs born 1950; 900 vs 2,000 soldiers; the treaty signed in May vs in August).
+  Estimates, approximations or ranges for the same quantity that differ moderately (less than 25 %,
+  e.g. "about 5,000" vs "4,600", "300 ships" vs "an estimated 260") are "partial", not
+  contradiction. If same_specific_fact is false, the label is never "contradiction".
+- "same": they make the same claim. Differences in wording, translation, naming (e.g. "the Social
+  Democratic Party" vs "the SDP", "seized power" vs "took over"), or one side adding only a minor extra detail
+  (such as a date, a place or a title) are still "same".
+- "framing": the same fact told with a clearly different slant, judgement or tone (a value judgement,
+  loaded word, or who is credited / blamed present in one and not the other).
+- "partial": they overlap only partly: one makes a substantive claim the other lacks, they are about
+  related but different facts, or the moderate-difference estimate case above.
 Tone of each sentence: "neutral" (encyclopedic), "loaded" (word choice takes a side without
-attribution) or "partisan" (openly presents one side's view as fact).
-
-Answer in JSON: "reason" = one short English sentence naming the concrete difference (or "Same claim."
-for same), then "label", "tone_fi", "tone_other"."""
+attribution) or "partisan" (openly presents one side's view as fact)."""
 
 
 def load_env() -> None:
@@ -122,10 +133,17 @@ def parse(content: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     if not isinstance(r, dict) or r.get("label") not in LABELS or r.get("tone_fi") not in TONES \
-            or r.get("tone_other") not in TONES or not isinstance(r.get("reason"), str):
+            or r.get("tone_other") not in TONES or not isinstance(r.get("reason"), str) \
+            or not isinstance(r.get("same_specific_fact"), bool):
         return None
-    return {"label": r["label"], "reason": r["reason"].strip()[:300],
-            "tone_fi": r["tone_fi"], "tone_other": r["tone_other"]}
+    out = {"label": r["label"], "reason": r["reason"].strip()[:300], "tone_fi": r["tone_fi"],
+           "tone_other": r["tone_other"], "fi_claim": str(r.get("fi_claim", "")).strip()[:200],
+           "other_claim": str(r.get("other_claim", "")).strip()[:200],
+           "same_specific_fact": r["same_specific_fact"], "downgraded": False}
+    # The rule, enforced: no contradiction unless both sentences state the same specific fact.
+    if out["label"] == "contradiction" and not out["same_specific_fact"]:
+        out["label"], out["downgraded"] = "partial", True
+    return out
 
 
 class Judge:
@@ -143,7 +161,7 @@ class Judge:
         self.tokens_out = 0
 
     async def judge(self, title: str, fi: str, other_lang: str, other: str) -> dict | None:
-        body = {"model": self.model, "temperature": 0, "max_tokens": 200,
+        body = {"model": self.model, "temperature": 0, "max_tokens": 400,
                 "messages": [{"role": "user", "content": PROMPT.format(
                     title=title, fi=fi, other_name=LANG_NAME[other_lang], other=other)}]}
         if self.schema:
@@ -239,15 +257,18 @@ def main() -> None:
 
     rows = [{**it, **res, "model": model} for it, res in zip(items, results) if res]
     DATA.mkdir(parents=True, exist_ok=True)
-    cols = ["wikidata_id", "fi_sent_no", "other_lang", "other_sent_no", "label", "reason", "tone_fi", "tone_other", "model"]
+    cols = ["wikidata_id", "fi_sent_no", "other_lang", "other_sent_no", "label", "reason", "tone_fi", "tone_other",
+            "fi_claim", "other_claim", "same_specific_fact", "model"]
     schema = pa.schema([("wikidata_id", pa.string()), ("fi_sent_no", pa.int32()), ("other_lang", pa.string()),
                         ("other_sent_no", pa.int32()), ("label", pa.string()), ("reason", pa.string()),
-                        ("tone_fi", pa.string()), ("tone_other", pa.string()), ("model", pa.string())])
+                        ("tone_fi", pa.string()), ("tone_other", pa.string()), ("fi_claim", pa.string()),
+                        ("other_claim", pa.string()), ("same_specific_fact", pa.bool_()), ("model", pa.string())])
     pq.write_table(pa.Table.from_pylist([{c: r[c] for c in cols} for r in rows], schema=schema),
                    DATA / "judgements.parquet")
     with open(DATA / "judgements-detail.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["wikidata_id", "title", "fi_sent_no", "other_lang", "other_sent_no",
-                                          "distance", "label", "tone_fi", "tone_other", "reason", "fi_text", "other_text"],
+                                          "distance", "label", "same_specific_fact", "downgraded", "tone_fi", "tone_other",
+                                          "reason", "fi_claim", "other_claim", "fi_text", "other_text"],
                            extrasaction="ignore")
         w.writeheader(); w.writerows(rows)
 
@@ -261,7 +282,8 @@ def main() -> None:
         "pairs_per_s": round(len(rows) / wall, 2) if wall else None,
         "tokens_in": judge.tokens_in, "tokens_out": judge.tokens_out,
         "tokens_per_s": round((judge.tokens_in + judge.tokens_out) / wall) if wall else None,
-        "labels": labels, "gpu": a.gpu, "eur_per_hour": a.eur_per_hour,
+        "labels": labels, "downgraded_contradictions": sum(r["downgraded"] for r in rows),
+        "same_specific_fact_true": sum(r["same_specific_fact"] for r in rows), "gpu": a.gpu, "eur_per_hour": a.eur_per_hour,
         "cost_eur_run": round(a.eur_per_hour * wall / 3600, 4) if a.eur_per_hour else None,
     }
     (DATA / "judge_run.json").write_text(json.dumps(run_log, indent=2), encoding="utf-8")

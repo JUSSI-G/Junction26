@@ -113,6 +113,26 @@ laptop over an SSH tunnel, concurrency 32. Start **21:05:22**, end **21:05:59 EE
     (a human edits). 30 pairs is a small sample; the stratification also inflates the recall estimates.
   - Next steps if time: give Gemma the neighbouring sentences as context, a second "is this really a
     contradiction?" pass, or gemma-3-27b-it on the same A100.
+**v2 run, "claims first" (2026-11-14):** same A100 80GB / vLLM 0.33 / gemma-3-12b-it, concurrency 32.
+Start **21:31:38**, end **21:32:47 EET** (68.8 s). Schema now has `fi_claim`, `other_claim`,
+`same_specific_fact` before the label; prompt rules: contradiction only for the same specific fact
+that clearly disagrees, moderate (< 25 %) estimate differences = partial, wording / naming / minor
+extra detail = same (examples in the prompt deliberately not taken from the 30 labelled pairs).
+Code also downgrades contradiction → partial when `same_specific_fact` is false: **fired 0 times**.
+- 430 pairs, 0 invalid JSON, **6.3 pairs/s** (more output tokens per pair), **€0.041**.
+- Labels: sv same 43 · partial 57 · framing 3 · contradiction 2; en same 179 · partial 133 · framing 9 ·
+  contradiction 4 (v1: 11 same, 32 contradiction, 42 framing in total).
+- On the same 30 labels (v1 → v2): contradiction precision **3/8 → 2/3**, recall 3/3 → 2/3;
+  framing precision 4/8 → 1/1 but recall **4/4 → 1/4**; same precision 4/4 → 8/20, recall 4/9 → 8/9;
+  partial 7/10 → 4/6, recall 7/14 → 4/14. Accuracy **60 % → 50 %**; problem-vs-not 70 % → 83 %.
+- Reading: the rule fixed over-flagging but over-corrected toward "same" (9 of the 14 human
+  "partial" and 3 of 4 "framing" became "same"). Remaining false contradictions: two different
+  elections (37 % vs 62.7 %) and battle deaths vs all deaths, both with `same_specific_fact` wrongly
+  true, so the 12B model's scope judgement is the weak point. Contradiction precision 67 % < the 75 %
+  target → next: **gemma-3-27b-it**.
+- Note: the 30 pairs informed the new rules, so they are not a clean test any more. **Held-out set:
+  20 new pairs** in `scoring/eval/pairs_test.csv` (stratified by v2 label, excluding the 30, Gemma's
+  label hidden).
 - Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
   contradiction; added "first ask whether both could be true at the same time". It still does: noted.
 
@@ -122,6 +142,7 @@ laptop over an SSH tunnel, concurrency 32. Start **21:05:22**, end **21:05:59 EE
 |---|---|---|---|
 | 2026-11-14 17:57 | embed_sentences.py, 2 hero topics (CPU test) | laptop i9-8950HK, CPU | 2,145 sentences, 6.5 sentences/s |
 | 2026-11-14 21:05 | judge_pairs.py, 2 hero topics, 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 11.6 pairs/s, 0 % invalid JSON, €0.022 |
+| 2026-11-14 21:31 | judge_pairs.py v2 (claims first), same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 6.3 pairs/s, 0 % invalid JSON, €0.041 |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 

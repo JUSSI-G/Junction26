@@ -48,11 +48,16 @@ Scope: every sentence of the 2,919 topics that exist in all three languages.
 | `reason` | string | one English sentence |
 | `tone_fi` | string | `neutral` \| `loaded` \| `partisan` |
 | `tone_other` | string | `neutral` \| `loaded` \| `partisan` |
+| `fi_claim` | string | the specific fact the Finnish sentence states, in a few English words |
+| `other_claim` | string | the same for the other sentence |
+| `same_specific_fact` | bool | both state a value for the very same thing (same quantity / event / date / name, same scope) |
 | `model` | string | e.g. `google/gemma-3-12b-it` |
 
-Labels: `same` = the same claim; `contradiction` = the two disagree on a fact (number, date, name);
-`framing` = the same fact told with a different slant or tone; `partial` = one sentence says only
-part of what the other says.
+Labels: `same` = the same claim (differences in wording, naming or a minor extra detail only);
+`contradiction` = **only if `same_specific_fact` is true** and the two clearly disagree on that fact
+(number, date, name); `framing` = the same fact told with a different slant or tone; `partial` = they
+overlap only partly, or estimates / ranges for the same quantity differ moderately (< 25 %).
+`label = contradiction` with `same_specific_fact = false` never occurs (enforced in code).
 
 ## c) API (Jussi builds; Kristian's React view uses it)
 
@@ -113,3 +118,6 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 - 2026-11-14: first version.
 - 2026-11-14: sentences are split with `text_sentences()` (new, for S's Markdown-like text), not
   `sentences()` / `split_sentences()`.
+- 2026-11-14: (b) gains `fi_claim`, `other_claim`, `same_specific_fact` (written by Gemma before the
+  label); labels tightened: contradiction only for the same specific fact, moderate estimate
+  differences are `partial`, wording / naming / minor extra detail is `same`. Labels unchanged.

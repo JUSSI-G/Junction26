@@ -2,6 +2,10 @@ r"""Hand-labelled check of Gemma's pair judgements (scoring/judge_pairs.py).
 
     python -m scoring.eval_pairs --sample 30     # write scoring/eval/pairs_labels.csv (blank `label`)
     python -m scoring.eval_pairs                 # after labelling: accuracy against Gemma
+    python -m scoring.eval_pairs --judgements data/verda/judgements-v1.parquet data/verda/judgements.parquet
+                                                 # before / after table
+    python -m scoring.eval_pairs --sample 20 --labels scoring/eval/pairs_test.csv \
+        --exclude scoring/eval/pairs_labels.csv  # a held-out test set
 
 The sample is stratified by Gemma's label (so rare labels are represented), seeded, and the CSV does
 **not** contain Gemma's label, so the human labeller is not anchored. Labels: same, contradiction,
@@ -33,34 +37,70 @@ def key(r: dict) -> tuple:
     return (r["wikidata_id"], int(r["fi_sent_no"]), r["other_lang"], int(r["other_sent_no"]))
 
 
-def sample(n: int, seed: int) -> None:
-    if LABELS_CSV.exists() and any(r.get("label") for r in csv.DictReader(open(LABELS_CSV, encoding="utf-8"))):
-        sys.exit(f"{LABELS_CSV} already has labels; not overwriting")
-    rows = list(csv.DictReader(open(DETAIL, encoding="utf-8")))
+def sample(n: int, seed: int, out: Path = LABELS_CSV, exclude: list[Path] = (), quota: dict = QUOTA) -> None:
+    if out.exists() and any(r.get("label") for r in csv.DictReader(open(out, encoding="utf-8"))):
+        sys.exit(f"{out} already has labels; not overwriting")
+    taken = {key(r) for p in exclude for r in csv.DictReader(open(p, encoding="utf-8"))}
+    rows = [r for r in csv.DictReader(open(DETAIL, encoding="utf-8")) if key(r) not in taken]
     rng = random.Random(seed)
     by = {lab: [r for r in rows if r["label"] == lab] for lab in LABELS}
     picked = []
-    for lab, q in QUOTA.items():
+    for lab, q in quota.items():
         picked += rng.sample(by[lab], min(q, len(by[lab])))
-    picked += rng.sample(by["partial"], n - len(picked))
+    rest = [r for r in rows if r not in picked]
+    rest_partial = [r for r in rest if r["label"] == "partial"]
+    fill = rng.sample(rest_partial, min(n - len(picked), len(rest_partial)))
+    picked += fill
+    if len(picked) < n:  # not enough partials: top up from anything left
+        left = [r for r in rest if r not in picked]
+        picked += rng.sample(left, n - len(picked))
     rng.shuffle(picked)
-    LABELS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with open(LABELS_CSV, "w", newline="", encoding="utf-8") as f:
+    print("Gemma labels in the sample (hidden from the labeller):", dict(Counter(r["label"] for r in picked)))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
         w.writeheader()
         for i, r in enumerate(picked, 1):
             w.writerow({**r, "n": i, "label": "", "notes": ""})
-    print(f"wrote {len(picked)} pairs to {LABELS_CSV} (fill in `label`: {' / '.join(LABELS)})")
+    print(f"wrote {len(picked)} pairs to {out} (fill in `label`: {' / '.join(LABELS)})")
 
 
-def evaluate() -> None:
-    human = {key(r): r for r in csv.DictReader(open(LABELS_CSV, encoding="utf-8")) if r["label"].strip()}
+def load_human(path: Path) -> dict:
+    human = {key(r): r for r in csv.DictReader(open(path, encoding="utf-8")) if r["label"].strip()}
     if not human:
-        sys.exit(f"no labels in {LABELS_CSV} yet")
+        sys.exit(f"no labels in {path} yet")
+    return human
+
+
+def per_label(human: dict, gemma: dict) -> dict:
+    pairs = [(h["label"].strip(), gemma[k]["label"]) for k, h in human.items() if k in gemma]
+    out = {"n": len(pairs), "correct": sum(h == g for h, g in pairs)}
+    for lab in LABELS:
+        g = [h for h, gl in pairs if gl == lab]
+        h = [gl for hl, gl in pairs if hl == lab]
+        out[lab] = (sum(x == lab for x in g), len(g), sum(x == lab for x in h), len(h))
+    return out
+
+
+def compare(labels: Path, paths: list[Path]) -> None:
+    """Before/after table: one column block per judgements file."""
+    human = load_human(labels)
+    runs = [(p.stem, per_label(human, {key(r): r for r in pq.read_table(p).to_pylist()})) for p in paths]
+    fmt = lambda a, b: f"{a}/{b}" if b else "–"  # noqa: E731
+    print(f"{len(human)} hand-labelled pairs ({labels.name})\n")
+    print(f"{'':<15}" + "".join(f"{name:>26}" for name, _ in runs))
+    print(f"{'':<15}" + "".join(f"{'precision':>14}{'recall':>12}" for _ in runs))
+    for lab in LABELS:
+        print(f"  {lab:<13}" + "".join(f"{fmt(m[lab][0], m[lab][1]):>14}{fmt(m[lab][2], m[lab][3]):>12}" for _, m in runs))
+    print(f"  {'accuracy':<13}" + "".join(f"{m['correct'] / m['n']:>13.0%} ({m['correct']}/{m['n']})"[:26].rjust(26) for _, m in runs))
+
+
+def evaluate(labels: Path = LABELS_CSV, judgements: Path = JUDGEMENTS) -> None:
+    human = load_human(labels)
     bad = {r["label"] for r in human.values()} - set(LABELS)
     if bad:
         sys.exit(f"unknown labels: {bad}")
-    gemma = {key(r): r for r in pq.read_table(JUDGEMENTS).to_pylist()}
+    gemma = {key(r): r for r in pq.read_table(judgements).to_pylist()}
     pairs = [(h["label"].strip(), gemma[k]["label"]) for k, h in human.items() if k in gemma]
     n = len(pairs)
     acc = sum(h == g for h, g in pairs) / n
@@ -101,8 +141,19 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sample", type=int, help="write a new labelling sample of N pairs")
     ap.add_argument("--seed", type=int, default=1918)
+    ap.add_argument("--labels", type=Path, default=LABELS_CSV, help="labelled CSV (or the sample to write)")
+    ap.add_argument("--judgements", type=Path, nargs="+", default=[JUDGEMENTS],
+                    help="one file: full report; several: before/after table")
+    ap.add_argument("--exclude", type=Path, nargs="*", default=[], help="with --sample: skip pairs in these CSVs")
+    ap.add_argument("--quota", help="with --sample: e.g. contradiction=5,framing=5,same=4 (rest partial)")
     a = ap.parse_args()
-    sample(a.sample, a.seed) if a.sample else evaluate()
+    if a.sample:
+        quota = {k: int(v) for k, v in (x.split("=") for x in a.quota.split(","))} if a.quota else QUOTA
+        sample(a.sample, a.seed, a.labels, a.exclude, quota)
+    elif len(a.judgements) > 1:
+        compare(a.labels, a.judgements)
+    else:
+        evaluate(a.labels, a.judgements[0])
 
 
 if __name__ == "__main__":
