@@ -1,5 +1,97 @@
 # Rewritten — working notes
 
+## Morning summary (2026-11-14)
+
+### What works
+The whole pipeline runs at full scale (19,742 articles, 862,076 versions). The globe app runs
+from one server: landing overlay, year slider with play, four metrics, green/red link arcs, a caption
+per year, the 1918 story, side panel with the article as it stood on the date, and the SQL drawer.
+
+**Start it** (PowerShell, from the project folder; MariaDB service must be running):
+```powershell
+cd web; npm install; npm run build; cd ..          # only after a fresh clone or frontend changes
+.venv\Scripts\python -m uvicorn api:app --port 8000
+# open http://127.0.0.1:8000
+```
+
+**Rebuild the data** (all steps are safe to rerun; none calls an API except labels for new places):
+```powershell
+.venv\Scripts\python places.py --all --no-lookup   # place, page_place from data/places.tsv  (2.7 min)
+.venv\Scripts\python labels_en.py                  # English labels, cached                  (seconds)
+.venv\Scripts\python place_links.py --all          # place_link, system-versioned            (3.8 min)
+.venv\Scripts\python build_heat.py --all           # revert, heat_year, page_origin, arc_year, year_caption (4.3 min)
+.venv\Scripts\python check_api.py                  # times every endpoint (server must run)
+cd web; npm run screenshots                        # docs/screenshots/ (server must run)
+```
+
+### Full-scale numbers
+| | |
+|---|---|
+| `article` (system-versioned) | 19,742 articles, 862,076 versions, 5.9 GB |
+| link targets / with coordinates / kept as places | 169,720 / 22,168 / **11,428** |
+| articles with their own location | 4,621 (4,142 own coordinates, 479 via event location) |
+| `place_link` (system-versioned) | **133,491 rows**, 113,891 current |
+| noise filter | 46,049 reverts found, 52,919 versions skipped (6.1 %) |
+| `heat_year` / `arc_year` / `page_origin` | 169,973 / 145,803 / 286,473 rows |
+| Wikidata lookups (one-off) | 161,655 titles, 6,077 requests, 70 min |
+| rebuild from cache | places 163 s · place links 229 s · heat + arcs 258 s |
+| API, warm | every endpoint 1.5–38 ms; "return everything" calls 149–184 ms; **none over 300 ms** |
+
+Sanity: page 1150 links 4 / 65 / 107 / 112 places as of 2005 / 2010 / 2018 / now (same sets as the
+50-article run); the 2014-02-11 edit still swaps Tampere + Suomenlinna for five prison camps.
+
+### Pitch findings (`docs/findings.md`, each with its SQL)
+1. **Helsinki is the most rewritten place:** 4,426 links added, 392 removed. (With countries: Suomi
+   leads, 4,992 / 1,282.)
+2. **2007 was the busiest year:** 11,276 links added, 1,559 removed. 45 % of the added links came
+   from new articles; 2007 is also the peak for edits, new articles and reverts.
+3. **Tarja Halonen is the most reverted article** (971 reverts). January 2006, the election month,
+   has her most edits and reverts, but the revert share was normal; it was busier, not more contested.
+4. **Links moved to the state of the period:** Venäjä → Venäjän keisarikunta is the most common swap
+   (48 edits); links to the Russian Empire grew ×7.4 from 2008 to 2026, Russia ×2.9.
+5. **No naming shift for the 1918 war:** "sisällissota" has led "vapaussota" about 5–6 to 1 since
+   2009. The 2009 jump in "vapaussota" is a medal name in biographies.
+
+### Screenshots (`docs/screenshots/`, 1600×900, headless Edge)
+`landing` · `2005` · `2014` · `2018` · `2018-all-links` · `2007-where-editors-fought` ·
+`2013-what-was-rewritten` · `story-1918-2014` · `place-tampere-2018` · `sql-drawer`
+
+### Half done / not checked
+- **Never tested by hand:** play/pause, hover tooltips, story autoplay and the "Explore freely"
+  button were only exercised through URL parameters and screenshots. Click through once before
+  the demo.
+- **Arc origins are guesses for most articles:** only 4,621 of 19,742 articles have a location of
+  their own. The default view shows only those; "Show all links" adds the guessed ones.
+- **Labels:** "Ahvenanmaan maakunta" can be half hidden behind Helsinki; region centroids
+  ("Eurooppa", "Pohjoismaat") sometimes get labels.
+- **`article` load time** was never recorded (the full load ran outside these notes).
+- **Findings caveat:** the war-name counts are word counts per article; "sisällissota" also covers
+  other countries' civil wars.
+- **Nothing blocked.** Two failures overnight, both fixed: the lookup run crashed at its very end on a
+  write conflict (no lookups lost), then a duplicate key from accent-insensitive collation
+  (place tables now `utf8mb4_bin`).
+
+### Next steps
+1. **Gemma on Verda (stage 7).** The UI is ready for it: the caption has an empty
+   "explained by Gemma" slot, filled when `/api/captions` finds a `change_reason (page_id, rev_id,
+   reason, label)` table. Start with the 23 caption edits and the 1150 story edits, then reverts and
+   link changes in bulk.
+2. Click through the demo by hand and fix anything the screenshots missed.
+3. Add the arc tooltips' Gemma reason (same `change_reason` table, keyed by the arc's articles).
+4. Record the `article` load time for the README (one rerun of `load_parquet.py --list all` on an
+   empty table; ask first, it rewrites 5.9 GB).
+
+## Night run, task 5: pitch findings (2026-11-14)
+
+`docs/findings.md`; queries in `findings.py` (10 min, mostly the yearly text scans) and
+`findings_extra.py`. Decisions:
+- Headline place excludes countries (Helsinki); Suomi is a footnote.
+- War names: "vapaussota" counted with and without medal-only articles (`Vapaussodan
+  muistomitali`). The data shows no shift, and the finding says so.
+- Halonen: monthly series July 2005 – June 2007 against the 15 / 29 January 2006 election rounds.
+
+---
+
 ## Stage 1: setup (2026-11-14) — done
 
 ### Result
