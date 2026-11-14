@@ -143,6 +143,35 @@ Code also downgrades contradiction → partial when `same_specific_fact` is fals
   Missed: the Tampere Red Guard losses (500–800 vs 1,000–1,500 killed), which v2 called partial.
 - 3 of the 20 held-out pairs are **misaligned** (unrelated sentences paired by embedding); v2 labelled
   all three partial. That is a matching problem (threshold / mutual-best), not a Gemma one.
+**v2 prompt on gemma-3-27b-it (2026-11-14):** same A100 80GB, vLLM 0.33, same prompt, schema and 430
+pairs, concurrency 32. Start **22:07:02**, end **22:09:16 EET** (134 s). 0 invalid JSON, 1 contradiction
+downgraded by the same_specific_fact rule. **3.2 pairs/s, €0.081.** Labels: sv same 18 · partial 70 ·
+framing 12 · contradiction 5; en same 78 · partial 203 · framing 34 · contradiction 10.
+
+| | v1 · 12B | v2 · 12B | v2 · 27B |
+|---|---|---|---|
+| accuracy, 30 dev pairs | 60 % | 50 % | **70 %** |
+| accuracy, 20 held-out | 50 % | 65 % | **70 %** |
+| accuracy, all 50 | 56 % | 56 % | **70 %** |
+| problem-vs-not, all 50 | 70 % | 78 % | 78 % |
+| contradiction precision / recall (50) | 5/10 · 5/6 | **4/6** · 4/6 | 3/6 · 3/6 |
+| framing precision / recall (50) | 4/12 · 4/5 | 2/6 · 2/5 | 2/4 · 2/5 |
+| same precision / recall (50) | 4/4 · 4/14 | 12/25 · 12/14 | **11/14 · 11/14** |
+| partial precision / recall (50) | 15/24 · 15/25 | 10/13 · 10/25 | **19/26 · 19/25** |
+| pairs/s (concurrency 32) | 11.6 | 6.3 | 3.2 |
+| cost of the 430-pair run | €0.022 | €0.041 | €0.081 |
+| € per 1,000 pairs | 0.05 | 0.10 | 0.19 |
+
+- 27B is clearly better at same vs partial (the bulk of the labels) and is the best overall, at 2× the
+  cost of 12B (v2) and half the speed. Per 1,000 pairs still €0.19.
+- **Contradiction precision did not improve (3/6).** 27B flags scope differences as contradictions
+  (battle deaths vs all deaths; a total death toll) and *misses* obvious ones: the Seraphim collar
+  2014 vs 2016 and the Tampere Red Guard losses are "partial" for 27B.
+- **Agreement of 12B and 27B (both say contradiction):** 4 of 430 pairs; on the labelled ones
+  precision **3/4**, but recall 3/6. Either model: 17 pairs, precision 4/8, recall 4/6. The samples
+  are tiny (6 human contradictions in 50 pairs): treat these as directions, not results.
+- Conclusion for the product: show contradictions as **candidates** ("possible contradiction, check
+  the sources"), sorted by agreement of the two models; use 27B labels for same / partial / framing.
 - Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
   contradiction; added "first ask whether both could be true at the same time". It still does: noted.
 
@@ -153,6 +182,7 @@ Code also downgrades contradiction → partial when `same_specific_fact` is fals
 | 2026-11-14 17:57 | embed_sentences.py, 2 hero topics (CPU test) | laptop i9-8950HK, CPU | 2,145 sentences, 6.5 sentences/s |
 | 2026-11-14 21:05 | judge_pairs.py, 2 hero topics, 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 11.6 pairs/s, 0 % invalid JSON, €0.022 |
 | 2026-11-14 21:31 | judge_pairs.py v2 (claims first), same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 6.3 pairs/s, 0 % invalid JSON, €0.041 |
+| 2026-11-14 22:07 | judge_pairs.py v2, same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-27b-it | 3.2 pairs/s, 0 % invalid JSON, €0.081 |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 
@@ -162,5 +192,7 @@ Code also downgrades contradiction → partial when `same_specific_fact` is fals
 
 | Job | Model | GPU | Throughput | €/h | €/1k items |
 |---|---|---|---|---|---|
-| pair judgements | gemma-3-12b-it (vLLM 0.33) | A100 80GB | 11.6 pairs/s (concurrency 32) | 2.159 | 0.05 |
+| pair judgements | gemma-3-12b-it, prompt v1 (vLLM 0.33) | A100 80GB | 11.6 pairs/s (concurrency 32) | 2.159 | 0.05 |
+| pair judgements | gemma-3-12b-it, prompt v2 | A100 80GB | 6.3 pairs/s | 2.159 | 0.10 |
+| pair judgements | gemma-3-27b-it, prompt v2 | A100 80GB | 3.2 pairs/s | 2.159 | 0.19 |
 | sentence embeddings (CPU test) | bge-m3 | none (laptop i9) | 6.5 sentences/s | – | – |
