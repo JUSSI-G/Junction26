@@ -47,7 +47,7 @@ t = time.time()
 cur.execute("DROP TABLE IF EXISTS page_origin")
 cur.execute("""CREATE TABLE page_origin (year SMALLINT NOT NULL, page_id INT UNSIGNED NOT NULL,
                place_title VARCHAR(255) NOT NULL, inferred BOOL NOT NULL,
-               PRIMARY KEY (year, page_id)) CHARACTER SET utf8mb4""")
+               PRIMARY KEY (year, page_id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin""")
 for year in YEARS:
     for sql in ORIGIN:
         cur.execute(for_year(sql, year))

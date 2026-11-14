@@ -407,3 +407,34 @@ Fixed after looking at the first round:
 - JS bundle is 1.95 MB (three.js); fine locally.
 - When `places.py --all` finishes it rewrites `place`/`page_place` for all articles without the camp
   category; rerun `places.py --all --no-lookup`, `place_links.py`, `build_heat.py` afterwards.
+
+## Night run, task 1: the overnight lookup (2026-11-14)
+
+- `places.py --all` **finished every lookup**: 161,655 new titles, 6,077 API requests, 4,206 s (70 min).
+  It then crashed while writing `place` (`Record has changed since last read in table 'place'`): a
+  transaction conflict with the Stage 3b refill of `place` that ran while it was looking up. No lookup
+  was lost; `data/places.tsv` holds 174,407 titles.
+- Rerun from the cache (0 lookups, 1 request, 163 s, of which 161 s is link extraction over 862,076
+  versions). First rerun failed with `Duplicate entry 'Salla' for key 'PRIMARY'`: the default
+  collation (`utf8mb4_uca1400_ai_ci`) ignores accents and case, so two different places collided.
+  **Decision:** `place`, `page_place`, `place_link`, `heat_year`, `page_origin` now use
+  `utf8mb4_bin` (schema.sql updated; existing tables converted with `ALTER TABLE … CONVERT TO`).
+- This rerun used the current `kinds.py` (with camps), so it also covers "places.py --all --no-lookup".
+
+Totals, all 19,742 articles:
+
+| | count |
+|---|---|
+| distinct link targets | **169,720** |
+| existing fi.wikipedia pages | 111,829 |
+| with a Wikidata item | 111,575 |
+| with coordinates | **22,168** (18,671 distinct after merging redirects) |
+| kept in `place` by the kind whitelist | **11,428** (7,243 excluded) |
+| articles with their own location (`page_place`) | **4,621**: 4,142 own P625, 479 via P276 |
+
+`place` by category: settlement 5,475 · own_location 2,641 · water 1,361 · region 634 · island 510 ·
+country 412 · battle 222 · fortress 117 · camp 29 · treaty 27. (own_location = articles with their own
+coordinates whose kind is not whitelisted, e.g. buildings; kept as arc origins only.)
+Top places by linking articles (ever / now): Suomi 4,728 / 3,710 · Helsinki 4,300 / 4,034 ·
+Venäjä 1,815 / 1,454 · Turku 1,708 / 1,557 · Neuvostoliitto 1,707 / 1,558 · Ruotsi 1,665 / 1,470 ·
+Pietari 1,528 / 1,446 · Tampere 1,329 / 1,208 · Viipuri 1,306 / 1,227 · Oulu 991 / 908.

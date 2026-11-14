@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS article_list (
   why      VARCHAR(255)
 ) CHARACTER SET utf8mb4;
 
+-- Title columns of the place tables use the binary collation: under the default accent- and
+-- case-insensitive one, 'Salla' and 'Šalla' collide in the primary key.
+
 -- 2. Places: link targets with coordinates (Wikidata P625) whose kind passes the whitelist in
 --    kinds.py, plus articles' own locations (category 'own_location' when not whitelisted).
 CREATE TABLE IF NOT EXISTS place (
@@ -45,13 +48,13 @@ CREATE TABLE IF NOT EXISTS place (
   kind       VARCHAR(50),                     -- the P31 label that matched the whitelist
   category   VARCHAR(20),                     -- country/battle/treaty/fortress/settlement/region/island/water
   is_country BOOL NOT NULL DEFAULT 0          -- drawn as a polygon, not a heat point
-) CHARACTER SET utf8mb4;
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 -- 3. The article's own location: its own P625, else its event location (P276 -> P625).
 CREATE TABLE IF NOT EXISTS page_place (
   page_id     INT UNSIGNED PRIMARY KEY,
   place_title VARCHAR(255)
-) CHARACTER SET utf8mb4;
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 -- 4. Place links over time, one row per (page, linked place). A row lives from the first
 --    version containing the link to the first version without it; a link that comes back
@@ -65,7 +68,7 @@ CREATE TABLE IF NOT EXISTS place_link (
   PERIOD FOR SYSTEM_TIME (row_start, row_end),
   PRIMARY KEY (page_id, to_place),
   KEY start_key (to_place, row_start)
-) CHARACTER SET utf8mb4
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
   WITH SYSTEM VERSIONING;
 
 -- 5. Per-year summary for smooth slider playback, built FROM the SVT queries.
@@ -77,4 +80,4 @@ CREATE TABLE IF NOT EXISTS heat_year (
   controversy INT,
   rewritten   INT,
   PRIMARY KEY (year, place_title)
-) CHARACTER SET utf8mb4;
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
