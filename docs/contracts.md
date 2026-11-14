@@ -10,8 +10,11 @@ Conventions for all three:
 - `page_id` is the page id **in that language's Wikipedia** (fi 1137, sv 119870 and en 1042690 are
   all Niinistö). Topics are joined across languages by `wikidata_id` (`"Q29207"`).
 - Sentences are numbered from 0 per (lang, page_id), in text order: `sent_no`.
-- Sentences are split with `ingest/sentences.py` (`sentences(wikitext)`, or `split_sentences` on
-  plain text) on dataset S's text, by both of us, so the numbers agree.
+- Sentences are split with **`ingest.sentences.text_sentences(text)`** on dataset S's `text`, by both
+  of us, so the numbers agree. `sent_no` = the index in the list it returns. (S text is Markdown-like
+  plain text, not wikitext: the function drops `#` headings and `|` table rows, strips `- ` list
+  markers, then uses the same splitter and filters as `sentences()`: at least 3 words, repeats within
+  an article kept once.)
 - **Distances are cosine distances** (`VEC_DISTANCE_COSINE`, 0 = same direction, 2 = opposite),
   between bge-m3 embeddings. Lower = more similar.
 
@@ -108,3 +111,5 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 ## Changes
 
 - 2026-11-14: first version.
+- 2026-11-14: sentences are split with `text_sentences()` (new, for S's Markdown-like text), not
+  `sentences()` / `split_sentences()`.
