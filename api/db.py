@@ -24,6 +24,9 @@ LOADERS = {   # table -> the command that creates and fills it
     "place_link": "python -m ingest.place_links",
     **dict.fromkeys(["heat_year", "page_origin", "arc_year", "year_caption", "revert"], "python -m ingest.build_heat"),
     "article": "python -m ingest.load_parquet",
+    **dict.fromkeys(["lang_article", "lang_article_vector", "lang_topic"], "python -m ingest.load_lang"),
+    "lang_sentence": "python -m ingest.embed_cpu (stage 1) or the Verda import (stage 2)",
+    "lang_pair": "python -m db.lang_match",
 }
 
 

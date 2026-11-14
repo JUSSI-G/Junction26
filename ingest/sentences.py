@@ -170,6 +170,24 @@ def sentences(wikitext: str | None) -> list[tuple[bytes, str]]:
     return out
 
 
+def text_sentences(text: str | None) -> list[tuple[bytes, str]]:
+    """Like sentences(), for dataset S's plain text (Markdown-like, not wikitext): drops `#` headings
+    and `|` table rows, strips `- ` / `* ` list markers, then splits and filters exactly as
+    sentences() does. sent_no = the index in this list. Shared contract: docs/contracts.md (a)."""
+    seen: set[bytes] = set()
+    out: list[tuple[bytes, str]] = []
+    for line in (text or "").split("\n"):
+        s = line.strip()
+        if not s or s[0] in "#|":
+            continue
+        s = s.lstrip("-*•:; ").strip()
+        for h, sent in _paragraph(s):
+            if h not in seen:
+                seen.add(h)
+                out.append((h, sent))
+    return out
+
+
 # Consecutive revisions share almost all paragraphs: cache the split per paragraph.
 _PARA_CACHE: dict[str, list[tuple[bytes, str]]] = {}
 _PARA_CACHE_MAX = 200_000
