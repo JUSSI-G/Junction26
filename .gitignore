@@ -1,7 +1,18 @@
-data/
+# secrets and local data
 .env
-.venv/
-node_modules/
+data/
 reference/
+
+# Python
+.venv/
 __pycache__/
+*.pyc
+.pytest_cache/
+
+# frontends: web/ (React, Kristian's views) and web/globe/ (the place globe)
+node_modules/
+web/node_modules/
+web/dist/
 web/globe/dist/
+
+*.part

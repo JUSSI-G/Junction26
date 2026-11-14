@@ -1,0 +1,11 @@
+{
+  "name": "contested-history",
+  "private": true,
+  "description": "Convenience scripts so npm works from the repo root; the frontend lives in web/.",
+  "scripts": {
+    "postinstall": "npm --prefix web install --no-audit --no-fund",
+    "dev": "npm --prefix web run dev",
+    "dev:mock": "npm --prefix web run dev:mock",
+    "build": "npm --prefix web run build"
+  }
+}

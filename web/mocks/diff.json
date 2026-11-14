@@ -1,0 +1,55 @@
+{
+ "added": [
+  {
+   "hash": "11661965516104ba89267f46eb9ad0749ce405e50c1e50a3ce6ff94bdd31c1ad",
+   "text": "Sodalle on annettu erilaisia nimiä, kuten vapaussota, punakapina, luokkasota ja kansalaissota, jotka heijastelevat eri osapuolten näkemyksiä.",
+   "editor": "Neutraali",
+   "rev_id": 900001918035
+  },
+  {
+   "hash": "6431af27286c515fccf76523ec5cc0f47e4e1110070ab3d19f9c7e87e2db9617",
+   "text": "Valkoinen terrori ja vankileirit vaativat enemmän uhreja kuin itse taistelut.",
+   "editor": "Historioitsija",
+   "rev_id": 900001918031
+  },
+  {
+   "hash": "66c01e0c14560c9272f005ebc7f8fa9774f020ed2534cb5c0847ef912cb3bf17",
+   "text": "Vuoden 2018 muistovuonna sotaa käsiteltiin laajasti sovinnon hengessä.",
+   "editor": "Aino_K",
+   "rev_id": 900001918048
+  },
+  {
+   "hash": "6f84a3c16c7f1140ef89cf5ba305251d8b16a20eef8551633fbcbb4ee25f3d4b",
+   "text": "Nykyään tutkimuksessa käytetään yleisimmin neutraalia nimeä sisällissota.",
+   "editor": "Neutraali",
+   "rev_id": 900001918045
+  },
+  {
+   "hash": "799534671a0faf15ccff134ff80ab0c06a5a13b78cf57bb5ca1db66b33ffeb30",
+   "text": "Punaisten joukot koostuivat pääosin punakaarteista.",
+   "editor": "Siivooja",
+   "rev_id": 900001918038
+  },
+  {
+   "hash": "88778c9d55805de9432d59fe736c7f221d253d6916f73ec479f7fcf49175225d",
+   "text": "Sota jätti syvät jäljet suomalaiseen yhteiskuntaan vuosikymmeniksi.",
+   "editor": "Punatähti",
+   "rev_id": 900001918041
+  },
+  {
+   "hash": "b99a6214750988d83cb47bd47aa6909ffa29059a9000e144ac221a336f2555f4",
+   "text": "Sodan jälkeen noin 80 000 punaista vangittiin vankileireille.",
+   "editor": "Historioitsija",
+   "rev_id": 900001918034
+  }
+ ],
+ "removed": [
+  {
+   "hash": "b362f3fd2560f9921f00a4a4440c1980dc2793d07d61e7839c44ae3b0eecc6de",
+   "text": "Punaiset olivat Venäjän yllyttämiä kapinallisia, jotka pyrkivät kaappaamaan vallan.",
+   "editor": "Valkokaarti",
+   "rev_id": 900001918006
+  }
+ ],
+ "kept": 6
+}
