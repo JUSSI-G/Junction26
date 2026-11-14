@@ -149,10 +149,13 @@ def load_cache():
         content = f.read()
     if not content.endswith("\n"):                      # killed mid-write: drop the partial line
         content = content[:content.rfind("\n") + 1]
-        with open(CACHE, "w", encoding="utf-8", newline="") as f:
-            f.write(content)
+        if not args.no_lookup:                          # read-only mode never writes the cache
+            with open(CACHE, "w", encoding="utf-8", newline="") as f:
+                f.write(content)
     reader = csv.DictReader(io.StringIO(content, newline=""), delimiter="\t")
     old_format = "kinds" not in reader.fieldnames
+    if old_format and args.no_lookup:
+        raise SystemExit("places.tsv has no kinds column; run once without --no-lookup")
     rows = {r["title"]: r for r in reader if r.get("p276") is not None}
     if old_format:                                      # cache from before the kinds column
         backfill_kinds(rows)
@@ -231,6 +234,9 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--all", action="store_true",
                     help="every article in the table (default: only those in article_list)")
+parser.add_argument("--no-lookup", action="store_true",
+                    help="read places.tsv only (never call the APIs or write the cache); refill "
+                         "place/page_place, e.g. after changing kinds.py while another run appends")
 args = parser.parse_args()
 SCOPE = "" if args.all else " WHERE page_id IN (SELECT page_id FROM article_list)"
 
@@ -259,7 +265,14 @@ print(f"Extracted {len(ever)} distinct link targets from {versions} versions in 
 # ---------------------------------------------------------------- 2. Wikidata lookups
 cache = load_cache()
 t0 = time.time()
-lookup(set(ever) | set(article_title.values()), cache)
+if args.no_lookup:
+    missing = (set(ever) | set(article_title.values())) - cache.keys()
+    print(f"--no-lookup: {len(missing)} titles not in the cache are treated as non-places")
+    for t in missing:
+        cache[t] = {"title": t, "resolved": "", "qid": "", "lat": "", "lon": "", "kind": "",
+                    "kinds": "", "p276": ""}
+else:
+    lookup(set(ever) | set(article_title.values()), cache)
 t_lookup = time.time() - t0
 
 # ---------------------------------------------------------------- 3. each article's own location
@@ -272,8 +285,13 @@ for page_id, title in article_title.items():
     elif r["p276"]:
         need_p276[page_id] = r["p276"]
 loc_info = {}
-for c in chunks(sorted(set(need_p276.values()))):
-    loc_info.update(entities(c, sitelinks=True))
+by_qid = {r["qid"]: r for r in cache.values() if r["qid"] and r["lat"] and r["resolved"]}
+for q in set(need_p276.values()) & by_qid.keys():       # location already cached: no request
+    r = by_qid[q]
+    loc_info[q] = {"lat": float(r["lat"]), "lon": float(r["lon"]), "fititle": r["resolved"]}
+if not args.no_lookup:
+    for c in chunks(sorted(set(need_p276.values()) - loc_info.keys())):
+        loc_info.update(entities(c, sitelinks=True))
 extra_rows = []
 for page_id, q in need_p276.items():
     i = loc_info.get(q, {})
@@ -281,6 +299,8 @@ for page_id, q in need_p276.items():
         method[page_id] = f"P276 {q} without coordinates or fi article"
         continue
     t = i["fititle"]
+    if t not in cache and q in by_qid:                  # cached under a redirect title
+        cache[t] = by_qid[q]
     if t not in cache:                                  # location not linked anywhere: cache it
         fetch_labels(i["p31s"])
         row = {"title": t, "resolved": t, "qid": q, "lat": i["lat"], "lon": i["lon"],
@@ -289,7 +309,7 @@ for page_id, q in need_p276.items():
         extra_rows.append(row)
         cache[t] = row
     own[page_id], method[page_id] = cache[t]["resolved"], "P276"
-if extra_rows:
+if extra_rows and not args.no_lookup:
     append_cache(extra_rows)
 
 # ---------------------------------------------------------------- 4. fill place and page_place

@@ -231,3 +231,103 @@ which the kind whitelist currently excludes ("prisoner-of-war camp", "concentrat
   Suomenlinnan vankileiri …), and without them the globe shows the 2014 rewrite only as a removal.
 - Self-links (an article linking its own location, e.g. sisällissota → Suomi) are kept in
   `place_link`; filter `from = to` in the arcs API.
+
+## Stage 3b: camps (2026-11-14)
+
+- New whitelist category **camp** (prison / prisoner-of-war / concentration / internment / labour camp)
+  in `kinds.py`: 8 places — Hennalan, Tampereen, Suomenlinnan, Hämeenlinnan, Riihimäen,
+  Lappeenrannan, Tammisaaren vankileiri, Fellmanin pelto. `place` now 931 rows; `place_link`
+  2,496 rows (1,799 current), built in 35 s.
+- `places.py --no-lookup`: refills `place`/`page_place` from `data/places.tsv` **read-only** (no API
+  calls, never writes the cache), so it is safe while the `--all` lookup run appends to the cache.
+  ⚠ The `--all` run imported the old `kinds.py` at start; when it finishes it rewrites `place`
+  without camps → afterwards run `places.py --all --no-lookup`, then `place_links.py`.
+- **Confirmed:** the 2014-02-11 edit on page 1150 ("Linkit vankileireihin", rev 13858503) now shows
+  as **5 links added** (Hämeenlinnan, Hennalan, Riihimäen, Suomenlinnan, Tampereen vankileiri) and
+  **2 removed** (Tampere, Suomenlinna) — the links moved from the towns to their camps.
+
+## Stage 4: heat table + API (2026-11-14) — 50 dev articles
+
+### heat_year (`build_heat.py`, 7.9 s total)
+Every metric is an `INSERT … SELECT` over SVT queries, one per year 2004–2026 (`heat_sql.py`; the API
+shows the build query in `built_from`):
+- **knowledge** = `place_link FOR SYSTEM_TIME AS OF '<year>-01-01'` rows pointing to the place,
+  plus length in KB of articles located there (`article FOR SYSTEM_TIME AS OF` ⋈ `page_place`).
+  KB rather than bytes so one article doesn't drown out the link counts.
+- **activity** = versions saved that year (`article FOR SYSTEM_TIME ALL`, row_start in year) of the
+  articles located at the place or linking it at any moment of the year
+  (`place_link FOR SYSTEM_TIME FROM '<y>-01-01' TO '<y+1>-01-01'`). 7.4 s of the 7.9 s.
+- **controversy** = reverts that year, same articles. Reverts go in a plain table `revert`, built
+  from `article FOR SYSTEM_TIME ALL` with the reference repo's window-function definition
+  (`sha1 <> LAG(sha1) AND MIN(row_start) OVER (PARTITION BY page_id, sha1) < row_start`):
+  **3,033 reverts** (Python found 3,035; the difference is versions with a NULL sha1).
+- **rewritten** = `place_link FOR SYSTEM_TIME ALL` rows to the place with row_start or row_end in
+  the year (added + removed; this includes links added by a new article).
+- Result: **12,294 rows, 917 places**. Top 2018: knowledge Suomi 368, Suomen suuriruhtinaskunta 142;
+  activity Suomi 1,330, Neuvostoliitto 1,244; controversy Suomi 97; rewritten Tampere 5.
+
+### API (`api.py`, FastAPI)
+Run: `.venv\Scripts\python -m uvicorn api:app --port 8000`. Each request opens its own connection
+(time_zone UTC). Every response has `sql` (the SQL that ran, with values filled in for reading;
+execution uses bound parameters or int-validated literals) and `ms` (database time).
+CORS open for GET (local frontend).
+
+| endpoint | sample | HTTP | curl total (warm) | DB ms | size |
+|---|---|---|---|---|---|
+| `/api/years` | | 200 | 4 ms | 1.3 | 0.2 KB |
+| `/api/heat` | year=2018, knowledge (580 places) | 200 | 9 ms | 2.2 | 80 KB |
+| `/api/heat` | year=2007, activity | 200 | 7 ms | | 50 KB |
+| `/api/heat` | year=2007, controversy | 200 | 6 ms | | 44 KB |
+| `/api/heat` | year=2014, rewritten | 200 | 4 ms | | 18 KB |
+| `/api/arcs` | year=2014, limit=200 | 200 | 12 ms | 5.8 | 34 KB |
+| `/api/arcs` | year=2018, limit=5000 (643 arcs) | 200 | 18 ms | 7.4 | 110 KB |
+| `/api/place/Tampere` | date=2010-01-01 | 200 | 5 ms | 1.8 | 1.7 KB |
+| `/api/place/Hennalan vankileiri` | date=2015-01-01 | 200 | 4 ms | | 1.1 KB |
+| `/api/article/1150` | date=2010-01-01 | 200 | 36 ms | 11.5 | 127 KB |
+| `/api/article/1150` | now | 200 | 35 ms | 6.2 | 146 KB |
+| errors | bad metric / unknown place / article before it existed | 400 / 404 / 404 | 2–3 ms | | |
+
+The article endpoint is the slowest because of cleaning about 150 KB of wikitext in Python, not the SQL.
+Sample responses are saved in `data/api_samples/*.json`.
+
+Sample responses (trimmed):
+```json
+GET /api/heat?year=2018&metric=knowledge
+{"sql": "SELECT h.place_title AS title, p.lat, p.lon, h.knowledge AS value, ... WHERE h.year = 2018 AND h.knowledge > 0 ...",
+ "ms": 2.17, "built_from": "INSERT INTO heat_year ... FROM place_link FOR SYSTEM_TIME AS OF TIMESTAMP'2018-01-01 00:00:00' ...",
+ "data": [{"title": "Suomi", "lat": 65.0, "lon": 27.0, "value": 368, "kind": "sovereign state",
+           "category": "country", "is_country": true}, ...]}
+
+GET /api/arcs?year=2014
+{"sql": "SELECT f.title AS from_title, ... FROM place_link FOR SYSTEM_TIME ALL WHERE row_start >= TIMESTAMP'2014-01-01 00:00:00' ...",
+ "ms": 5.82,
+ "data": [{"from": {"title": "Suomi", "lat": 65.0, "lon": 27.0},
+           "to": {"title": "Latvia", "lat": 57.0, "lon": 25.0},
+           "weight": 1, "status": "added", "pages": [1150]}, ...]}
+
+GET /api/place/Tampere?date=2010-01-01
+{"sql": "...FROM place_link FOR SYSTEM_TIME AS OF TIMESTAMP '2010-01-01 00:00:00' l ...", "ms": 1.75,
+ "place": {"title": "Tampere", "qid": "Q40840", "category": "settlement", ...},
+ "data": [{"page_id": 1150, "title": "Suomen sisällissota", "rev_id": 7791638, "relation": "links here",
+           "mentions": 1, "oldid_url": "https://fi.wikipedia.org/?oldid=7791638"}, ... 4 articles]}
+
+GET /api/article/1150?date=2010-01-01
+{"sql": "SELECT ... FROM article FOR SYSTEM_TIME AS OF TIMESTAMP '2010-01-01 00:00:00' WHERE page_id = 1150; ...",
+ "ms": 11.51, "title": "Suomen sisällissota", "rev_id": 7791638,
+ "oldid_url": "https://fi.wikipedia.org/?oldid=7791638", "saved": "2009-12-29 10:37:52",
+ "until": "2010-01-24 16:42:21", "edits_to_date": 2213, "reverts_to_date": 147,
+ "blocks": [{"kind": "p", "text": "Suomen sisällissota käytiin Suomen senaatin eli hallituksen ..."}, ... 314 blocks]}
+```
+
+### Arcs: decisions and limits
+- status per year: **added** = row_start in the year, **removed** = row_end in the year, **same** =
+  `AS OF '<y+1>-01-01'` with row_start before 1 Jan (the same row survived the whole year). A link
+  added and removed within one year shows as both. Ordered added → removed → same, then weight.
+- **weight = distinct articles** (`COUNT(DISTINCT page_id)`); first version used `COUNT(*)` and
+  double-counted links that flapped twice in a year (1150 → Latvia in 2014).
+- Origin = `page_place`; **self-links filtered** (`f.title <> t.title`). `pages` lists the page_ids
+  behind each arc (for tooltips / Gemma reasons later).
+- **Limit:** only 19 of the 50 dev articles have an origin, so most link changes have no arc
+  (2018: 19 added, 0 removed). The heatmap still counts them. Worth a fallback origin later
+  (e.g. the article's most-linked place).
+- 1150 sits at Suomi's centroid (65 N, 27 E), so all its arcs fan out from central Finland.

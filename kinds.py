@@ -16,6 +16,9 @@ GROUPS = [
                 r"|grand duchy|principality|country of the kingdom",
      r"republic of|autonomous|state of|state in|federated state|u\.s\. state|constituent country"
      r"|governorate"),
+    ("camp",     r"\b(prison camp|prisoner-of-war camp|concentration camp|internment camp"
+                 r"|labou?r camp|extermination camp|transit camp|camp)\b",
+     r"\b(summer|holiday|training|scout|military camp|base camp|campus)\b"),
     ("battle",   r"\b(battle|siege)\b", None),
     ("treaty",   r"\b(treaty|armistice)\b", None),
     ("fortress", r"\b(fortress|castle|fort|fortification|stronghold|citadel|kremlin|defen[cs]e line)\b",
