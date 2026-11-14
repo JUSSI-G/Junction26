@@ -192,6 +192,32 @@ framing 12 · contradiction 5; en same 78 · partial 203 · framing 34 · contra
   are tiny (6 human contradictions in 50 pairs): treat these as directions, not results.
 - Conclusion for the product: show contradictions as **candidates** ("possible contradiction, check
   the sources"), sorted by agreement of the two models; use 27B labels for same / partial / framing.
+**Top-300 worklist run (2026-11-14/15):** Jussi's `data/verda/top_topics.txt` (top 300 of /api/worklist,
+different-subject topics excluded), mutual one-to-one pairs within 0.418, v2 prompt, from the laptop
+over the SSH tunnel.
+
+| step | time | result |
+|---|---|---|
+| **27B judges all pairs** (`--tag 27b-top300`, concurrency 128) | 23:13:13–23:50:27 EET (2,234 s) | **7,401 pairs** from all 300 topics, 7,399 judged (2 failed after retries, 6 invalid JSON = 0.08 %), **3.3 pairs/s**, 4.8 M prompt + 0.8 M output tokens, **€1.34** |
+| stop vLLM, delete only the 27B model cache (`huggingface_hub` `delete_revisions`) | 21:57:30–21:57:42 UTC | 54.9 GB freed; bge-m3 kept; disk 5.1 → 57 GB free |
+| **download gemma-3-12b-it** (HF token in the environment for that one command only, via ssh stdin; unset after; in no file) | 21:57:50–21:58:37 UTC | **24.4 GB in 47 s** (≈ 520 MB/s) |
+| start vLLM 12B (`--host 127.0.0.1`, same key, `HF_HUB_OFFLINE=1`) | 21:58:46–22:00:56 UTC | KV cache 129,711 tokens (31.7 × 4k requests; 27B had 36,037 = 8.8 ×) |
+| **12B judges the 27B contradictions** (`--only-pairs … --only-label contradiction --tag 12b-contra`) | 00:01:30–00:02:06 EET (35 s) | **269 pairs**, 0 invalid JSON, **7.6 pairs/s**, **€0.021** |
+
+- 27B labels: sv same 1,334 · partial 1,617 · contradiction 111 · framing 90; en same 1,337 · partial
+  2,579 · contradiction 158 · framing 173. 18 contradictions were downgraded by the
+  same_specific_fact rule.
+- **Concurrency 128 did not speed 27B up:** with 27B's weights on the A100 the KV cache holds only
+  ~36k tokens, so vLLM ran ~52 requests at a time and queued the rest (log: "Running: 52 reqs,
+  Waiting: 46 reqs"). Memory, not the client, is the limit; 12B has 3.6× the KV room.
+- **12B agrees on 47 of the 269** (17 %, in 38 topics); it calls 167 partial, 52 same, 3 framing.
+  Agreed examples: Lorentz Creutz's term as governor (different end years), a death year in *Poika ja
+  ilves*, population density of Haukipudas, the date the Treaty of Tartu ratifications were exchanged.
+  On the hero labels, both-agree contradictions were right 3 of 4 times: these 47 are the strongest
+  candidates for the worklist.
+- Swap overhead (delete + download + vLLM start): ≈ 3.5 min ≈ €0.12. Total for this run ≈ €1.48.
+- Outputs (on the laptop, `data/verda/`): `judgements-27b-top300.parquet` + `judgements-detail-27b-top300.csv`
+  + `judge_run-27b-top300.json`; `judgements-12b-contra.parquet` + detail CSV + run JSON.
 - Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
   contradiction; added "first ask whether both could be true at the same time". It still does: noted.
 
@@ -204,6 +230,9 @@ framing 12 · contradiction 5; en same 78 · partial 203 · framing 34 · contra
 | 2026-11-14 21:31 | judge_pairs.py v2 (claims first), same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 6.3 pairs/s, 0 % invalid JSON, €0.041 |
 | 2026-11-14 22:07 | judge_pairs.py v2, same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-27b-it | 3.2 pairs/s, 0 % invalid JSON, €0.081 |
 | 2026-11-14 20:52 UTC | embed_sentences.py, all 2,919 topics, 358,553 sentences | Verda A100 80GB, fp16 | 2,892 sentences/s, 124 s, €0.07 (session ≈ €0.74) |
+| 2026-11-14 23:13 | judge_pairs.py v2, top-300 topics, 7,401 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-27b-it, conc. 128 | 3.3 pairs/s, 37 min, 0.08 % invalid JSON, €1.34 |
+| 2026-11-14 21:57 UTC | swap 27B → 12B: delete 27B cache, download 12B (24.4 GB in 47 s), start vLLM | Verda A100 80GB | 3.5 min, ≈ €0.12 |
+| 2026-11-15 00:01 | judge_pairs.py v2, the 269 27B contradictions | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 7.6 pairs/s, 35 s, €0.021; agrees on 47 |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 
