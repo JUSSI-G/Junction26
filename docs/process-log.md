@@ -74,14 +74,50 @@ Intel Mac note: current torch has no Intel-Mac build (stops at 2.2.2) and transf
 so the laptop pins transformers 4.46 / sentence-transformers 3.3 / numpy < 2 / pyarrow < 20 (see
 `scripts/verda/requirements.txt`). Same model weights, so `model` stays `bge-m3`; Ollama was not needed.
 
+## 5. GPU: Gemma judges sentence pairs (docs/contracts.md b)
+
+`scoring/judge_pairs.py`: for each Finnish sentence, its **mutual-best** sv and en match (cosine distance
+≤ 0.418, Jussi's stage-1 threshold) from `data/verda/sentences-*.parquet`; Gemma labels each pair
+same / contradiction / framing / partial with a one-line reason and both tones, via
+`response_format: json_schema` (vLLM guided decoding; `reason` comes first in the schema so the model
+explains before it labels). Endpoint from `.env`: `SCORING_URL`, `SCORING_API_KEY`, `GEMMA_MODEL`.
+
+```bash
+# Verda: vllm serve google/gemma-3-12b-it --max-model-len 4096 ; laptop reaches it by SSH tunnel
+python -m scoring.judge_pairs --topics Q29207,Q211855 --concurrency 32 --gpu "A100 80GB" --eur-per-hour 2.159
+```
+
+**Hero run (2026-11-14):** Verda **A100 80GB, €2.159/h, vLLM 0.33**, google/gemma-3-12b-it, from the
+laptop over an SSH tunnel, concurrency 32. Start **21:05:22**, end **21:05:59 EET**.
+- **430 pairs** (Niinistö fi–sv 26, fi–en 84; 1918 war fi–sv 79, fi–en 241), all judged,
+  **0 invalid JSON** (0 / 430 responses), 0 failures.
+- **11.6 pairs/s**; 170k prompt + 30k output tokens = 5,400 tokens/s.
+- **Cost of the run: 37 s × €2.159/h = €0.022** (≈ €0.05 per 1,000 pairs). The instance is billed for
+  its whole uptime, not per request: at this speed the GPU is idle most of the time unless the job is big.
+- Labels: sv partial 81 · framing 11 · contradiction 10 · same 3; en partial 264 · framing 31 ·
+  contradiction 22 · same 8. "partial" dominates: two different-language editions rarely say exactly the
+  same thing in one sentence.
+- Quality, read by hand: many "contradictions" are real (orphans 20,000 vs 15,000; Viipuri 7,000 vs
+  15,000 Reds; Seraphim collar 2014 vs 2016) but some are wrong pairings (different elections) or a
+  different scope read as a disagreement. Measured on 30 hand-labelled pairs: `scoring/eval/pairs_labels.csv`,
+  `python -m scoring.eval_pairs`.
+- Prompt iteration: one smoke test of 8 pairs called "leader until 2001" vs "succeeded in 2001" a
+  contradiction; added "first ask whether both could be true at the same time". It still does: noted.
+
 ## Log
 
 | Time | What | Machine | Result |
 |---|---|---|---|
 | 2026-11-14 17:57 | embed_sentences.py, 2 hero topics (CPU test) | laptop i9-8950HK, CPU | 2,145 sentences, 6.5 sentences/s |
+| 2026-11-14 21:05 | judge_pairs.py, 2 hero topics, 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 11.6 pairs/s, 0 % invalid JSON, €0.022 |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 
 | Model | GPU | Sentences/s | €/h | €/1k sentences | All of dataset M (est.) | All fi-Wikipedia (est.) |
 |---|---|---|---|---|---|---|
 | | | | | | | |
+
+| Job | Model | GPU | Throughput | €/h | €/1k items |
+|---|---|---|---|---|---|
+| pair judgements | gemma-3-12b-it (vLLM 0.33) | A100 80GB | 11.6 pairs/s (concurrency 32) | 2.159 | 0.05 |
+| sentence embeddings (CPU test) | bge-m3 | none (laptop i9) | 6.5 sentences/s | – | – |
