@@ -254,7 +254,7 @@ def article(page_id: int, date: str | None = None):
             "blocks": [{"kind": k, "text": t} for k, t in clean(a["text"])]}
 
 
-# The built frontend (web/dist, from `npm run build` in web/), so one command serves everything.
-_dist = os.path.join(ROOT, "web", "dist")
+# The built frontend (web/globe/dist, from `npm run build` in web/globe/), so one command serves everything.
+_dist = os.path.join(ROOT, "web", "globe", "dist")
 if os.path.isdir(_dist):
     app.mount("/", StaticFiles(directory=_dist, html=True), name="web")
