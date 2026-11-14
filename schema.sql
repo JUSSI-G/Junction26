@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS article_list (
 --    kinds.py, plus articles' own locations (category 'own_location' when not whitelisted).
 CREATE TABLE IF NOT EXISTS place (
   title      VARCHAR(255) PRIMARY KEY,
+  en_label   VARCHAR(255),                    -- English Wikidata label (labels_en.py)
   qid        VARCHAR(20),
   lat        DOUBLE,
   lon        DOUBLE,
@@ -53,7 +54,8 @@ CREATE TABLE IF NOT EXISTS place (
 -- 3. The article's own location: its own P625, else its event location (P276 -> P625).
 CREATE TABLE IF NOT EXISTS page_place (
   page_id     INT UNSIGNED PRIMARY KEY,
-  place_title VARCHAR(255)
+  place_title VARCHAR(255),
+  KEY place_key (place_title)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 -- 4. Place links over time, one row per (page, linked place). A row lives from the first

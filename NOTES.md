@@ -438,3 +438,71 @@ coordinates whose kind is not whitelisted, e.g. buildings; kept as arc origins o
 Top places by linking articles (ever / now): Suomi 4,728 / 3,710 · Helsinki 4,300 / 4,034 ·
 Venäjä 1,815 / 1,454 · Turku 1,708 / 1,557 · Neuvostoliitto 1,707 / 1,558 · Ruotsi 1,665 / 1,470 ·
 Pietari 1,528 / 1,446 · Tampere 1,329 / 1,208 · Viipuri 1,306 / 1,227 · Oulu 991 / 908.
+
+## Night run, task 2: Stage 6, full scale (2026-11-14)
+
+All 19,742 articles / 862,076 versions. `article` is 5.9 GB on disk (its load time was not recorded;
+it ran outside these notes).
+
+| step | command | time | result |
+|---|---|---|---|
+| places | `places.py --all` (from cache) | **163 s** | `place` 11,428, `page_place` 4,621 |
+| English labels | `labels_en.py` | 188 s (229 requests, once) | 9,951 places with an `en_label` |
+| place links | `place_links.py --all` | **229 s** | `place_link` **133,491** rows (113,891 current), 8,787 target places |
+| heat + arcs | `build_heat.py --all` | **258 s** | see below |
+
+No step came near 45 min, so nothing needed optimising for time.
+
+- **Noise filter at full scale:** 46,049 reverts detected, **52,919 versions skipped (6.1 %)**.
+- `build_heat.py --all` breakdown: `revert` 45,668 rows 13.9 s · knowledge 5.6 s · **activity 191.8 s** ·
+  controversy 25.5 s · rewritten 1.4 s · `page_origin` 286,473 rows (17,487 articles have an origin in
+  some year; 180,190 inferred) 4.8 s · `arc_year` 145,803 rows 12.1 s · `year_caption` 1.8 s.
+  `heat_year`: **169,973 rows, 11,400 places**.
+- Link changes per year peak in **2007: 11,276 added, 1,559 removed** (full table in
+  `data/place_links_all.log`).
+
+### What changed for scale
+- **`arc_year`** (new plain table): the 1,500 strongest arcs per year × status × origin type, built
+  from the same `FOR SYSTEM_TIME ALL / AS OF` query the API used to run live. Live, that query grouped
+  every link of the year. `/api/arcs` reads `arc_year` and returns the SVT query as `built_from`.
+  `/api/arcs?page=` (one article) still runs live on `place_link`.
+- **`/api/arcs` defaults changed:** only added + removed arcs with a known origin, `limit` strongest
+  per group (default 150). `all=1` adds unchanged and inferred-origin arcs.
+- **`/api/heat`** has `limit` (default 1,500): countries first (drawn as polygons), then the strongest
+  places. Returns `en_label`.
+- **`/api/place`** returns the 200 articles that link the place most (`limit`), plus `linking_total`.
+- **`/api/captions`** (new) + `year_caption` table: per year, links added/removed and the single edit
+  that changed the most place links (an article's first version doesn't count). Includes
+  `reason`/`label` from a `change_reason (page_id, rev_id, reason, label)` table when it exists
+  (Gemma, stage 7); null until then.
+- Index `page_place (place_title)`; `revert (page_id, row_start)`.
+- `check_api.py` times every endpoint against the running server.
+
+### API response times at full scale (warm, best of 3; `data/check_api_full.txt`)
+| endpoint | total ms | DB ms | rows | KB |
+|---|---|---|---|---|
+| `/api/years` | 1.5 | 0.1 | 23 | 0.2 |
+| `/api/captions` | 2.3 | 0.1 | 23 | 8.9 |
+| `/api/heat?year=2018&metric=knowledge` | 37.8 | 21.8 | 1,500 | 272 |
+| `/api/heat?year=2007&metric=activity` | 22.7 | 7.6 | 1,500 | 269 |
+| `/api/heat?year=2007&metric=controversy` | 31.0 | 5.5 | 1,500 | 266 |
+| `/api/heat?year=2013&metric=rewritten` | 29.0 | 13.7 | 1,500 | 269 |
+| `/api/heat?year=2026&metric=knowledge&limit=20000` (everything) | 148.5 | 44.0 | 10,881 | 1,963 |
+| `/api/arcs?year=2014` | 8.9 | 1.7 | 300 | 92 |
+| `/api/arcs?year=2007&all=1` | 27.2 | 5.5 | 900 | 314 |
+| `/api/arcs?year=2018&all=1&limit=1500` (everything stored) | 183.5 | 31.2 | 6,508 | 2,233 |
+| `/api/arcs?year=2014&page=1150` | 5.0 | 1.0 | 140 | 39 |
+| `/api/place/Tampere?date=2010-01-01` | 18.9 | 14.5 | 202 | 40 |
+| `/api/place/Helsinki` | 26.8 | 21.9 | 232 | 48 |
+| `/api/place/Suomi?date=2018-12-31` | 33.7 | 28.9 | 216 | 44 |
+| `/api/article/1150?date=2010-01-01` | 34.9 | 12.0 | 314 | 127 |
+| `/api/article/1150` | 34.1 | 6.4 | 364 | 146 |
+
+**Nothing is over 300 ms.**
+
+### Sanity checks at full scale
+- **Page 1150** links 4 / 65 / 107 / 112 places as of 2005 / 2010 / 2018 / now. The place sets are
+  **identical** to the 50-article run with camps (compared name by name). The older 64 / 100 / 104 in
+  Stage 3 were measured before the camp category existed.
+- **2014-02-11 edit on 1150:** still 5 camps added (Hennalan, Hämeenlinnan, Riihimäen, Suomenlinnan,
+  Tampereen vankileiri) and Tampere + Suomenlinna removed.

@@ -29,6 +29,7 @@ from collections import defaultdict
 from common import connect, ROOT
 from links import extract
 from kinds import classify, is_country
+from labels_en import load_labels
 
 CACHE = os.path.join(ROOT, "data", "places.tsv")
 FIELDS = ["title", "resolved", "qid", "lat", "lon", "kind", "kinds", "p276"]
@@ -329,10 +330,12 @@ for t, r in coords.items():
     else:
         excluded[r["kind"] or "(no P31)"] += 1
 cur.execute("DELETE FROM place")
-cur.executemany("INSERT INTO place (title, qid, lat, lon, kind, category, is_country) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [(t, r["qid"], float(r["lat"]), float(r["lon"]), (kind or "")[:50] or None,
-                  category, is_country(category)) for t, (r, category, kind) in places.items()])
+en = load_labels()                                      # data/place_labels.tsv, from labels_en.py
+cur.executemany("INSERT INTO place (title, en_label, qid, lat, lon, kind, category, is_country) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(t, en.get(r["qid"], "")[:255] or None, r["qid"], float(r["lat"]), float(r["lon"]),
+                  (kind or "")[:50] or None, category, is_country(category))
+                 for t, (r, category, kind) in places.items()])
 cur.execute("DELETE FROM page_place")
 cur.executemany("INSERT INTO page_place (page_id, place_title) VALUES (?, ?)", list(own.items()))
 con.commit()
