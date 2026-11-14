@@ -3,6 +3,9 @@
 // `python -m api.dump_mocks`, so the frontend can be built without a backend.
 
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === '1'
+// The editor views (worklist, compare) have their own switch, because their API (docs/contracts.md c)
+// does not exist yet: mocks by default. Set VITE_EDITOR_MOCKS=0 (e.g. in web/.env.local) to use the API.
+const EDITOR_MOCKS = USE_MOCKS || (import.meta.env.VITE_EDITOR_MOCKS ?? '1') !== '0'
 const mockFiles = import.meta.glob('../mocks/*.json')
 
 async function mock(name) {
@@ -11,8 +14,8 @@ async function mock(name) {
   return (await mockFiles[key]()).default
 }
 
-async function get(path, params = {}, mockName) {
-  if (USE_MOCKS) return mock(mockName)
+async function get(path, params = {}, mockName, useMock = USE_MOCKS) {
+  if (useMock) return mock(mockName)
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== ''))
   const res = await fetch(`/api${path}${qs.toString() ? '?' + qs : ''}`)
   if (!res.ok) {
@@ -39,9 +42,13 @@ export const api = {
   aboutAll: (date, from, to) => get('/about', { date, from, to }, 'about_all'),
   map: () => get('/map', {}, 'map'),
   mapNear: (lat, lon, deg = 1) => get('/map/near', { lat, lon, deg }, 'map_near'),
+  // Editor tool, docs/contracts.md (c). The mock compare.json holds one topic (Niinistö, Q29207).
+  worklist: (limit = 50) => get('/worklist', { limit }, 'worklist', EDITOR_MOCKS),
+  compare: (wikidataId) => get(`/compare/${encodeURIComponent(wikidataId)}`, {}, 'compare', EDITOR_MOCKS),
 }
 
 export const isMock = USE_MOCKS
+export const isEditorMock = EDITOR_MOCKS
 
 export const fmtDate = (iso) => (iso ? iso.slice(0, 10) : 'now')
 export const wikiRev = (revId) => `https://fi.wikipedia.org/?oldid=${revId}`
