@@ -1047,3 +1047,39 @@ never "contradiction". A second model (the 12B run) agreeing should raise precis
   - agreement and sort order (pure function)
   - the import refuses unknown sentence numbers
   - Talonpoika is flagged
+
+### 6. Second model: Gemma 3 12B (`judgements-v2-12b.parquet`)
+Imported next to the 27B with `python -m ingest.load_judgements data/verda/judgements-v2-12b.parquet`:
+- 430 rows, on the same 430 pairs; numbering verified; took 0.2 s.
+- `judgements-v2-27b.parquet` is byte-identical to `judgements.parquet`, so it was not imported again.
+- 12B labels: 222 same, 190 partial, 12 framing, 6 contradiction.
+- The 12B is clearly more lenient: it calls 108 of the 27B's "partial" pairs and 23 of its "framing"
+  pairs "same".
+
+Agreement: the same label on **260 / 430 pairs (60 %)**.
+
+| 27B \ 12B | same | partial | framing | contradiction |
+|---|---|---|---|---|
+| same | 88 | 8 | 0 | 0 |
+| partial | 108 | 160 | 3 | 2 |
+| framing | 23 | 15 | 8 | 0 |
+| contradiction | 3 | 7 | 1 | 4 |
+
+**Contradictions both models agree on: 4. Of these, 3 are real:**
+- the armistice: 15 vs 6 December
+- the Vaasa senate: 2 vs 4 May
+- Mannerheim's disarmament order: 25 vs 27 January
+- The fourth is "nearly equal combat deaths" vs "five times more Reds killed", which compares different
+  scopes.
+
+**Precision:** about 75 % when both models agree, against 7 / 15 ≈ 47 % for the 27B alone. The price is
+recall: of the 27B's 7 real ones, 4 are missed by the 12B (Mannerheim's resignation, Viipuri, the March
+manifesto, 80k vs 100k). So the UI shows both, with "both models agree" first.
+
+**The 12B's own 2 contradictions (Niinistö):**
+- 37 % vs 62.7 %: the first round vs the second round, a false alarm.
+- The Order of the Seraphim collar, 2014 vs 2016: a **real** difference the 27B called partial.
+
+`/api/compare/Q211855` now lists the 4 agreed contradictions first ("Possible contradiction, check the
+sources (both models agree)"), then the 11 that only the 27B flags. The worklist counts stay on the
+27B. Tests: 76 passed.
