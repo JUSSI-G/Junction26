@@ -74,6 +74,26 @@ Intel Mac note: current torch has no Intel-Mac build (stops at 2.2.2) and transf
 so the laptop pins transformers 4.46 / sentence-transformers 3.3 / numpy < 2 / pyarrow < 20 (see
 `scripts/verda/requirements.txt`). Same model weights, so `model` stays `bge-m3`; Ollama was not needed.
 
+**Full run on Verda (2026-11-14, times UTC):** A100-SXM4-80GB, €2.159/h, 22 vCPU, 117 GB RAM, 96 GB disk.
+
+| step | time (UTC) | result |
+|---|---|---|
+| stop vLLM, check GPU / disk | 20:48–20:50 | GPU 0 MiB used; disk **11 GB free** (52 GB of it is the Gemma 27B HF cache) |
+| repo + data | 20:50–20:51 | repo is private and the GPU has no GitHub credentials → `git bundle` of `combined` (17 MB) sent by scp, cloned from it; dataset S articles fi/sv/en downloaded, SHA256 OK |
+| venv | 20:51 | `uv venv ~/embed-venv` layered on the vLLM venv's torch 2.14 cu130 + transformers 5.20 via a `.pth` file; only sentence-transformers 6.3, scikit-learn, scipy, pyarrow (+ joblib, threadpoolctl, narwhals) installed, `--no-deps`: 334 MB instead of ~7 GB for a second CUDA torch (the disk could not take it) |
+| fp16 check, 2 hero topics | 20:51:49 (25 s wall) | GPU fp16 vs laptop CPU fp32 vectors, same keys and texts: cosine **min 0.99998, mean 0.999999**, 0 of 2,145 below 0.999 → fp16 kept. 1,720 sentences/s |
+| **all 2,919 topics** | **20:52:40–20:55:12** | **358,553 sentences** (fi 167,278 · sv 72,023 · en 119,252); split 9.7 s, model load 4 s, **embedding 124 s = 2,892 sentences/s** (batch 256, fp16), wall 154 s |
+| copy back to the Mac | 20:55:36–20:56:18 (42 s) | `sentences-{fi,sv,en}.parquet` **705 MB** (fi 331 MB · en 236 MB · sv 142 MB), SHA256 equal both ends |
+| restart Gemma 27B | 20:56–21:09 | first start failed: FlashInfer JIT needs `ninja`, which is in `/root/vllm/bin` and not on PATH when the binary is called without activating the venv; restarted with `PATH=/root/vllm/bin:$PATH`, `HF_HUB_OFFLINE=1` (weights in the HF cache, so no HF token on the server), `--host 127.0.0.1`: startup complete 21:09, 74 GB GPU memory, `/v1/models` answers through the SSH tunnel |
+
+- **Speed: 2,892 sentences/s on the A100 vs 6.5/s on the laptop CPU = ~445×.** The laptop would need
+  ~15 hours (358,553 / 6.5 s) for what the GPU did in 2 minutes.
+- **Cost:** the embedding job **€0.07** (124 s) / €0.09 wall incl. model load; the whole session from
+  stopping vLLM to Gemma back up (20:49–21:09, ~20 min of instance time) **≈ €0.74**, most of it setup
+  and the vLLM restart, not compute. Per 1,000 sentences: €0.0002.
+- Disk after the run: 5.1 GB free (95 %). The outputs stay on the GPU in `~/Junction26/data/verda/`
+  until we need the space.
+
 ## 5. GPU: Gemma judges sentence pairs (docs/contracts.md b)
 
 `scoring/judge_pairs.py`: for each Finnish sentence, its **mutual-best** sv and en match (cosine distance
@@ -183,6 +203,7 @@ framing 12 · contradiction 5; en same 78 · partial 203 · framing 34 · contra
 | 2026-11-14 21:05 | judge_pairs.py, 2 hero topics, 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 11.6 pairs/s, 0 % invalid JSON, €0.022 |
 | 2026-11-14 21:31 | judge_pairs.py v2 (claims first), same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-12b-it | 6.3 pairs/s, 0 % invalid JSON, €0.041 |
 | 2026-11-14 22:07 | judge_pairs.py v2, same 430 pairs | Verda A100 80GB, vLLM 0.33, gemma-3-27b-it | 3.2 pairs/s, 0 % invalid JSON, €0.081 |
+| 2026-11-14 20:52 UTC | embed_sentences.py, all 2,919 topics, 358,553 sentences | Verda A100 80GB, fp16 | 2,892 sentences/s, 124 s, €0.07 (session ≈ €0.74) |
 
 ## Throughput & cost (→ docs/numbers.md and the pitch)
 
@@ -195,4 +216,5 @@ framing 12 · contradiction 5; en same 78 · partial 203 · framing 34 · contra
 | pair judgements | gemma-3-12b-it, prompt v1 (vLLM 0.33) | A100 80GB | 11.6 pairs/s (concurrency 32) | 2.159 | 0.05 |
 | pair judgements | gemma-3-12b-it, prompt v2 | A100 80GB | 6.3 pairs/s | 2.159 | 0.10 |
 | pair judgements | gemma-3-27b-it, prompt v2 | A100 80GB | 3.2 pairs/s | 2.159 | 0.19 |
+| sentence embeddings | bge-m3, fp16, batch 256 | A100 80GB | 2,892 sentences/s | 2.159 | 0.0002 |
 | sentence embeddings (CPU test) | bge-m3 | none (laptop i9) | 6.5 sentences/s | – | – |
