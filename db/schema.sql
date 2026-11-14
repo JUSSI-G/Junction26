@@ -203,3 +203,75 @@ CREATE TABLE IF NOT EXISTS heat_year (
   rewritten   INT,
   PRIMARY KEY (year, place_title)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+
+
+-- ============================================================ Part 3: languages (the editor tool)
+-- Dataset S (release s-2026-10): the CURRENT text of the fi / sv / en articles and one bge-m3
+-- vector per article. Names start with lang_ so they never clash with `article` (dataset M).
+-- Loaded by `python -m ingest.load_lang`.
+
+CREATE TABLE IF NOT EXISTS lang_article (
+  lang          CHAR(2)      NOT NULL,       -- fi, sv, en
+  page_id       INT UNSIGNED NOT NULL,       -- that language's own page id
+  rev_id        BIGINT UNSIGNED NOT NULL,    -- the version in the snapshot
+  wikidata_id   VARCHAR(20),                 -- the same topic across languages, e.g. Q29207
+  title         VARCHAR(512) NOT NULL,
+  url           VARCHAR(600) NOT NULL,
+  date_modified DATETIME,                    -- when that version was saved (UTC)
+  content       MEDIUMTEXT COMPRESSED NOT NULL,  -- clean text from FineWiki (Markdown-ish)
+  len           INT UNSIGNED NOT NULL,       -- characters
+  PRIMARY KEY (lang, page_id),
+  KEY wikidata_key (wikidata_id, lang)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- One bge-m3 vector per article (dataset S). The model reads at most 8,192 tokens: `truncated`
+-- marks articles longer than that, whose vector covers only their beginning.
+CREATE TABLE IF NOT EXISTS lang_article_vector (
+  lang       CHAR(2)      NOT NULL,
+  page_id    INT UNSIGNED NOT NULL,
+  model      VARCHAR(50)  NOT NULL,
+  truncated  BOOL         NOT NULL,
+  embedding  VECTOR(1024) NOT NULL,           -- a VECTOR INDEX column must be NOT NULL
+  PRIMARY KEY (lang, page_id),
+  -- M=16, not the default 6: with 1024 dimensions M=6 found only 79 % of the true top 10
+  -- (reference/mariadb-vector-wikipedia-rag). Sessions set mhnsw_ef_search = 80.
+  VECTOR INDEX (embedding) M=16 DISTANCE=cosine
+);
+
+-- The topics that exist in all three languages (same wikidata_id): the editor tool's universe.
+CREATE TABLE IF NOT EXISTS lang_topic (
+  wikidata_id  VARCHAR(20)  NOT NULL PRIMARY KEY,
+  fi_page_id   INT UNSIGNED NOT NULL,
+  sv_page_id   INT UNSIGNED NOT NULL,
+  en_page_id   INT UNSIGNED NOT NULL,
+  KEY (fi_page_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Every sentence of a language version, with its bge-m3 vector. Split with
+-- ingest.sentences.text_sentences() (docs/contracts.md). Stage 1: embedded on CPU
+-- (ingest/embed_cpu.py); stage 2: imported from Verda (data/verda/sentences-*.parquet).
+CREATE TABLE IF NOT EXISTS lang_sentence (
+  lang         CHAR(2)      NOT NULL,
+  page_id      INT UNSIGNED NOT NULL,
+  sent_no      INT UNSIGNED NOT NULL,          -- 0-based, text order
+  wikidata_id  VARCHAR(20)  NOT NULL,
+  text         TEXT         NOT NULL,
+  model        VARCHAR(50)  NOT NULL,          -- bge-m3
+  embedding    VECTOR(1024) NOT NULL,          -- L2-normalised
+  PRIMARY KEY (lang, page_id, sent_no),
+  KEY topic_key (wikidata_id, lang),
+  VECTOR INDEX (embedding) M=16 DISTANCE=cosine
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Best match of each sentence in the other language, within the same topic (db/lang_match.py).
+-- direction 'fi': for each Finnish sentence, its nearest sv / en sentence;
+-- direction 'other': for each sv / en sentence, its nearest Finnish sentence (finds only_sv / only_en).
+CREATE TABLE IF NOT EXISTS lang_pair (
+  wikidata_id  VARCHAR(20)  NOT NULL,
+  other_lang   CHAR(2)      NOT NULL,          -- sv / en
+  direction    ENUM('fi', 'other') NOT NULL,
+  fi_sent      INT UNSIGNED NOT NULL,
+  other_sent   INT UNSIGNED NOT NULL,
+  distance     FLOAT        NOT NULL,          -- cosine distance
+  PRIMARY KEY (wikidata_id, other_lang, direction, fi_sent, other_sent)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

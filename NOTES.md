@@ -700,3 +700,83 @@ Problem hit: the first rerun used `places.py --all --no-lookup` and gave 4,618 o
 4,621. One event location (Q2994644, used by 3 articles) was fetched live by the original run but is
 not in `data/places.tsv`, and `--no-lookup` never calls the API. Rerun without the flag: 1 request,
 numbers equal. `--no-lookup` is only for when another run is appending to the cache.
+
+## Editor tool, stage 1: the proof (2026-11-14, branch `jussi-editor`)
+
+New plan in CLAUDE.md: an editor tool (fi / sv / en differences + edit wars). Contracts with Kristian
+(Verda, Gemma, React) in **`docs/contracts.md`**, mocks in `web/mocks/worklist.json`, `compare.json`.
+(The earlier "combined stage 2" sentence load into `article` was not started; superseded by this plan.)
+
+### Dataset S loaded (`python -m ingest.load_lang`, 163 s)
+`lang_article` 29,460 rows (fi 19,285 · sv 4,921 · en 5,254), 69 MB · `lang_article_vector` 29,460
+bge-m3 vectors, `VECTOR INDEX M=16 DISTANCE=cosine`, 250 MB · `lang_topic` **2,919** topics in all
+three languages. No existing table touched. 162 topics have at least one truncated vector.
+
+### Level 1: whole-article distance (`python -m db.lang_distance` → `data/lang_distance.txt`)
+One `VEC_DISTANCE_COSINE` query over the 2,919 topics, **43 ms**.
+
+| pair | median | p10 | p90 | max | R² explained by length |
+|---|---|---|---|---|---|
+| fi–sv | 0.244 | 0.164 | 0.355 | 0.585 | 25 % |
+| fi–en | 0.235 | 0.162 | 0.337 | 0.605 | 23 % |
+| sv–en | 0.204 | 0.130 | 0.310 | 0.603 | 28 % |
+
+- **Most similar:** short biographies written alike (Bayard Taylor fi–sv 0.070, Arthur Hjelt fi–en 0.064).
+- **Least similar: mostly not "different stories" but different subjects under one Wikidata id**:
+  Renki / Farmworker (fi–en 0.605), Kirvu (former Finnish municipality) / Svobodnoye, Leningrad Oblast,
+  Lauri Olavinpoika Björnram / Lasse Olsson (240 vs 41,642 chars), Punakaarti 69,580 vs Röda gardet 335 chars.
+- **Length:** the bigger the length ratio, the larger the distance (r ≈ +0.5); length explains about
+  a quarter of the variance. The residual after a length fit is the better ranking signal.
+- **Heroes:** Niinistö fi–sv 0.242 (median), fi–en 0.149 (among the 7 % most similar).
+  Suomen sisällissota fi–sv **0.350 (rank 320 of 2,919)**, fi–en 0.217.
+
+### Level 2: sentence matching, Niinistö + 1918 war (`ingest.embed_cpu`, `db.lang_match` → `data/lang_match.txt`)
+- Split with the new shared **`ingest.sentences.text_sentences()`** (S text is Markdown: drops `#`
+  headings and `|` tables, strips `- `). Sentences: Niinistö fi 242 / sv 45 / en 169;
+  1918 war fi 870 / sv 261 / en 558.
+- Embedded with **bge-m3 on CPU** (sentence-transformers 6.3, torch 2.15 CPU, 16 threads):
+  4,548 sentences (heroes + 20 random calibration topics) in 331 s = **13.7 sentences/s**.
+  Model download 2.3 GB. → `lang_sentence` (53 MB, vector index M=16).
+- Matching in MariaDB: exact best match per sentence within the topic
+  (`VEC_DISTANCE_COSINE` + `ROW_NUMBER() OVER`), both directions → `lang_pair` 3,257 rows, **3.3 s**.
+  Exact, not the vector index: a per-topic search with a `WHERE` would have the index filter after the
+  ANN step. The index is for the "search all sentences" queries of stage 2.
+
+**Threshold = 0.418 (cosine distance).** How: each Finnish sentence's best match in *unrelated* articles
+of the other language (random topics, pool as large as the real article) is a "match by chance".
+0.418 is the 5th percentile of those chance distances (sv 0.423, en 0.413 separately), so a closer
+match happens by chance for only 5 % of sentences. The random topics are also Finnish history, so this
+is conservative. **Caveat:** for the 1918 war the real and chance distributions overlap a lot
+(median real fi→en 0.398 vs chance 0.495; real fi→sv 0.452 vs chance 0.503): much of a long article
+is only loosely covered in the other language, and a single threshold is a blunt cut.
+
+| topic | lang | fi sentences | matched | **missing** | lang sentences | only in lang |
+|---|---|---|---|---|---|---|
+| Sauli Niinistö | sv | 242 | 84 | **158** | 45 | 11 |
+| Sauli Niinistö | en | 242 | 160 | **82** | 169 | 42 |
+| Suomen sisällissota | sv | 870 | 241 | **629** | 261 | 146 |
+| Suomen sisällissota | en | 870 | 547 | **323** | 558 | 140 |
+
+(The Swedish Niinistö article is 4,277 characters against 29,153 in Finnish, so "missing in sv" is
+mostly "the Swedish article is short".)
+
+**5 clearest "missing in English"** (no en sentence closer than 0.418; distance to nearest en):
+1. 1918 war fi#864 (0.610): *Heikki Kujanpään vuonna 2018 ohjaama Suomen hauskin mies on
+   punavankileirille sijoittuva … draama* — the 2018 prison-camp film is not in the English film list.
+2. 1918 war fi#666 (0.571): *"Lahdessa naisia eivät kuitenkaan teloittaneet saksalaiset, vaan
+   suomalaiset"* — who executed women at Lahti; English only mentions the camp's rape stories.
+3. 1918 war fi#843 (0.556): Uuno Pekka Kekäläinen's Hennala prison-camp diary (1973).
+4. 1918 war fi#828 (0.548): the last White Army veteran, Lennart Rönnback, died in 2007.
+5. Niinistö fi#205 (0.547): founded the Tukikummit foundation with Hjallis Harkimo.
+
+**Numbers / dates:** 348 of 1,032 matched pairs have different numbers; 238 where *each* side has a
+number the other lacks. Read the top ones: **none is a clear contradiction.** They are omissions or
+different scope (fi "Helsinki 12–13 April, Hyvinkää 21 April …" vs en "Hyvinkää and Riihimäki 21–22
+April"), approximations (about 400 White Guard units vs 375 on 26 Jan 1918), or a match on a
+neighbouring claim (phase 1 ended 14 March vs the war ended 15 May). Number-diffing finds candidates;
+deciding contradiction needs Gemma (stage 3). Footnote markers (`[130]`) are ignored.
+
+### Problems
+- `lang_topic` / `lang_pair` got the server default collation (uca1400) and failed to join
+  `lang_sentence` (unicode_ci): all `lang_*` tables are now `utf8mb4_unicode_ci`.
+- The first heading-and-list-blind split kept Markdown headings as sentences → `text_sentences()`.
