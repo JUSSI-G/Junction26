@@ -7,7 +7,8 @@
     "dev": "vite",
     "dev:mock": "vite --mode mock",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "screenshots:editor": "node scripts/screenshot-editor.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "4.3.1",
+    "playwright": "^1.53.2",
     "vite": "5.4.10"
   }
 }
