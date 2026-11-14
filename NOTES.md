@@ -851,3 +851,40 @@ the Finnish and Swedish texts just share no sentence closely enough.
   Topics without sentences answer `rows: []` + `note` (recorded in contracts.md).
 - `tzdata` added to requirements (pyarrow needs it on Windows to read dataset M's times).
 - Tests: **69 passed** (new `api/tests/test_editor.py` checks both routes field by field against the mocks).
+
+## Editor tool: globe language lines + top-40 comparisons (2026-11-14)
+
+### A. "Language differences" on the globe (`web/globe`, `GET /api/lang-lines`)
+- Fifth button next to the metrics. Each topic in fi + sv + en is a dot at its place; lines go from it
+  to **Stockholm (sv)** and **London (en)**, labelled at the ends "SV Swedish Wikipedia" / "EN English
+  Wikipedia". Year slider and caption are hidden (dataset S is one snapshot, Aug 2025).
+  Clicking a dot or a line opens `/contested/#compare/<wikidata_id>` (Kristian's React route).
+  Legend entry + SQL drawer show the query. `/api/lang-lines`: 2,682 topics, 88 ms.
+- **Where a topic is:** page_place (Wikidata, 860), else article_geo (Finnish wikitext coordinates, 7),
+  else **inferred** = the place its Finnish article links most today (`page_origin` 2026, 1,815; drawn
+  as a smaller dot, the tooltip says so). *Decision:* without the inferred places only 867 topics had a
+  place and Niinistö was missing. **Niinistö lands at Salo** (his birthplace, his article's most-linked
+  place), not Helsinki as CLAUDE.md's example says: the data's answer, kept.
+- **Colour:** percentile of the distance within each language (green = closer to the Finnish article
+  than most, red = among the most different), not the raw distance: raw values cluster around the
+  median and everything looked orange. **Only the 15 % most different lines per language are drawn
+  clearly**; the rest are a faint haze. Two earlier versions (all lines equally visible; then a cubic
+  fade) were a red hairball at 2,682 × 2 lines. Dot colour = mean of the two percentiles.
+- Different-subject topics are hidden. Screenshots: `docs/screenshots/language-differences.png`
+  (Europe view, the default for this mode) and `language-differences-finland.png` (`?view=home`).
+- Still dense over Finland: most topics are Finnish places. The bright lines and the labels (most
+  different first) carry the message; zooming in helps.
+
+### B. Real comparison rows for the top 40 of the worklist
+`ingest.embed_cpu --topics <top 40 by rank, different-subject excluded>` (list in `data/top40.txt`):
+18 were already embedded as extreme candidates; the other 22 = **5,366 sentences in 6 min 58 s** (15.0
+sentences/s), then `db.lang_match` (40 topics, 2.9 s) and `db.build_divergence`.
+**197 topics now have sentence data** (heroes + 20 calibration + 153 candidates + 22). `/api/compare`
+returns real rows for all of the top 40 (e.g. Muinaissukset: 10 ms).
+Honest caveat: the top of the worklist is dominated by topics where the Finnish article is far longer
+(Muinaissukset: 706 Finnish sentences, 696 missing in English). That is real missing content, but it
+means "most different" ≈ "Finnish is much longer" for many topics.
+
+### C. Checks
+Tests **70 passed** (+ `test_lang_lines_for_the_globe`). Screenshots of the normal modes re-taken
+(2014, landing, story) and unchanged apart from the new button.

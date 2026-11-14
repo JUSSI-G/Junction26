@@ -39,7 +39,12 @@ const LANG_END = {
   en: { lat: 51.5072, lon: -0.1276, title: 'en', name: 'English Wikipedia' },
 };
 const DIFF_RAMP = [[61, 220, 132], [255, 200, 60], [255, 90, 95]];   // same -> different
-const diffT = (d) => Math.max(0, Math.min(1, (d - 0.15) / (0.40 - 0.15)));  // cosine distance p10..p97
+const diffT = (d) => Math.max(0, Math.min(1, (d - 0.15) / (0.40 - 0.15)));  // tooltips: cosine distance p10..p97
+// Lines and dots: percentile within the language, so green = more alike than most, red = among the most different.
+// Lines: only the most different 15 % per language are drawn clearly; the rest stay a faint haze.
+const LINE_TOP = 0.15;
+const topShare = (t) => Math.max(0, (t - (1 - LINE_TOP)) / LINE_TOP) ** 1.5;
+function pctRank(values) { const s = [...values].sort((a, b) => a - b); return (v) => (s.length > 1 ? s.findIndex((x) => x >= v) / (s.length - 1) : 0); }
 const compareUrl = (q) => `/contested/#compare/${q}`;
 let langLines = null;   // /api/lang-lines response (cached)
 const isLang = () => state.metric === 'language';
@@ -161,7 +166,7 @@ const globe = new Globe($('globe'), { animateIn: false })
   .pointsMerge(false)
   .pointsTransitionDuration(0)
   .pointAltitude((d) => (d.lang ? 0.012 : 0.007 + 0.012 * d.t))
-  .pointRadius((d) => zoom * (d.lang ? 0.12 + 0.18 * d.t : 0.06 + 0.42 * d.t))
+  .pointRadius((d) => zoom * (d.lang ? (d.inferred ? 0.06 : 0.12) + 0.18 * d.t : 0.06 + 0.42 * d.t))
   .pointColor((d) => (d.lang ? rgba(ramp(DIFF_RAMP, d.t), 0.95) : rgba(ramp(POINT_RAMP, 0.15 + 0.85 * d.t), 0.7 + 0.28 * d.t)))
   .pointLabel((d) => (d.lang ? langTip(d.topic) : `<div class="tip"><b>${both(d)}</b><br><span class="k">${esc(d.kind || d.category)}</span><br><b>${fmt(d.value)}</b> ${METRIC[state.metric].unit} in ${state.year}<br><span class="k">click for its articles</span></div>`))
   .onPointClick((d) => (d.lang ? (location.href = compareUrl(d.wikidata_id)) : openPlace(d.title)))
@@ -184,11 +189,11 @@ const globe = new Globe($('globe'), { animateIn: false })
   .arcStartLat((d) => d.from.lat).arcStartLng((d) => d.from.lon)
   .arcEndLat((d) => d.to.lat).arcEndLng((d) => d.to.lon)
   .arcColor((d) => {
-    if (d.lang) { const c = ramp(DIFF_RAMP, d.t); return [rgba(c, 0.15 + 0.5 * d.t), rgba(c, 0.35 + 0.6 * d.t)]; }
+    if (d.lang) { const c = ramp(DIFF_RAMP, d.t), a = 0.025 + 0.9 * topShare(d.t); return [rgba(c, a * 0.5), rgba(c, a)]; }
     const a = d.status === 'same' ? (d.origin_inferred ? 0.06 : 0.14) : (d.origin_inferred ? 0.3 : 0.95);
     return [rgba(ARC[d.status], a * 0.55), rgba(ARC[d.status], a)];
   })
-  .arcStroke((d) => zoom * (d.lang ? 0.05 + 0.12 * d.t : d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
+  .arcStroke((d) => zoom * (d.lang ? 0.02 + 0.16 * topShare(d.t) : d.status === 'same' ? 0.04 : (d.origin_inferred ? 0.09 : 0.14) + 0.04 * Math.min(3, d.weight)))
   .arcAltitudeAutoScale(0.16)
   .arcDashLength((d) => (d.lang || d.status === 'same' ? 1 : d.status === 'added' ? 0.55 : 0.25))
   .arcDashGap((d) => (d.lang || d.status === 'same' ? 0 : d.status === 'added' ? 0.25 : 0.2))
@@ -289,7 +294,7 @@ function langTip(t, only = null) {
       + `distance <b>${d.toFixed(3)}</b>${miss != null ? ` · ${fmt(miss)} Finnish sentences missing` : ''}`;
   };
   return `<div class="tip"><b>${esc(t.titles.fi)}</b>${t.titles.en !== t.titles.fi ? ` <span class="en">${esc(t.titles.en)}</span>` : ''}<br>
-    ${(only ? [only] : ['sv', 'en']).map(line).join('<br>')}<br><span class="k">click to compare fi / sv / en</span></div>`;
+    ${(only ? [only] : ['sv', 'en']).map(line).join('<br>')}<br>${t.place ? `<span class="k">placed at ${esc(t.place)}, the place its article links most</span><br>` : ''}<span class="k">click to compare fi / sv / en</span></div>`;
 }
 
 async function renderLanguage(seq) {
@@ -299,11 +304,14 @@ async function renderLanguage(seq) {
   globe.polygonCapColor(() => 'rgba(20,27,42,0.72)');
   globe.polygonsData(countryFeatures);
   const topics = langLines.data;
+  const rank = { sv: pctRank(topics.map((t) => t.fi_sv)), en: pctRank(topics.map((t) => t.fi_en)) };
   const dots = topics.map((t) => ({ lang: true, topic: t, wikidata_id: t.wikidata_id, title: t.titles.fi,
-    lat: t.lat, lon: t.lon, value: Math.max(t.fi_sv, t.fi_en), t: diffT(Math.max(t.fi_sv, t.fi_en)) }));
+    inferred: t.located_by === 'inferred',
+    lat: t.lat, lon: t.lon, value: (rank.sv(t.fi_sv) + rank.en(t.fi_en)) / 2,
+    t: (rank.sv(t.fi_sv) + rank.en(t.fi_en)) / 2 }));
   globe.pointsData(dots);
   // Most different on top: draw the calm lines first.
-  const lines = topics.flatMap((t) => ['sv', 'en'].map((l) => ({ lang: l, topic: t, t: diffT(t[`fi_${l}`]),
+  const lines = topics.flatMap((t) => ['sv', 'en'].map((l) => ({ lang: l, topic: t, t: rank[l](t[`fi_${l}`]),
     from: { lat: t.lat, lon: t.lon }, to: LANG_END[l] }))).sort((a, b) => a.t - b.t);
   globe.arcsData(lines);
   $('lang-count').textContent = fmt(topics.length);

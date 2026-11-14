@@ -153,11 +153,14 @@ def compare(wikidata_id: str):
 
 
 # Where each topic is on the globe: the Finnish article's own place (page_place, from Wikidata),
-# else Kristian's article_geo (coordinates in the Finnish wikitext). Different-subject topics left out.
+# else Kristian's article_geo (coordinates in the Finnish wikitext), else the place its article links
+# most today (page_origin 2026, "inferred": Niinistö -> Salo, his birthplace). Different-subject topics
+# left out.
 LANG_LINES_SQL = """SELECT d.wikidata_id, fi.title AS title_fi, en.title AS title_en, sv.title AS title_sv,
        d.fi_sv, d.fi_en, d.score, d.missing_sv, d.missing_en,
-       COALESCE(p.lat, g.lat) AS lat, COALESCE(p.lon, g.lon) AS lon,
-       IF(p.title IS NOT NULL, 'page_place', 'article_geo') AS located_by
+       COALESCE(p.lat, g.lat, op.lat) AS lat, COALESCE(p.lon, g.lon, op.lon) AS lon,
+       CASE WHEN p.title IS NOT NULL THEN 'page_place' WHEN g.page_id IS NOT NULL THEN 'article_geo'
+            ELSE 'inferred' END AS located_by, op.title AS inferred_place
 FROM article_divergence d
 JOIN lang_topic t USING (wikidata_id)
 JOIN lang_article fi ON fi.lang = 'fi' AND fi.page_id = t.fi_page_id
@@ -166,8 +169,10 @@ JOIN lang_article en ON en.lang = 'en' AND en.page_id = t.en_page_id
 LEFT JOIN page_place pp ON pp.page_id = t.fi_page_id
 LEFT JOIN place p ON p.title = pp.place_title
 LEFT JOIN article_geo g ON g.page_id = t.fi_page_id
+LEFT JOIN page_origin o ON o.page_id = t.fi_page_id AND o.year = 2026
+LEFT JOIN place op ON op.title = o.place_title
 WHERE NOT d.different_subject
-  AND (p.title IS NOT NULL OR g.page_id IS NOT NULL)
+  AND (p.title IS NOT NULL OR g.page_id IS NOT NULL OR op.title IS NOT NULL)
 ORDER BY d.score DESC"""
 
 
@@ -179,6 +184,7 @@ def lang_lines():
     data = [{"wikidata_id": r["wikidata_id"],
              "titles": {"fi": r["title_fi"], "sv": r["title_sv"], "en": r["title_en"]},
              "lat": float(r["lat"]), "lon": float(r["lon"]), "located_by": r["located_by"],
+             "place": r["inferred_place"] if r["located_by"] == "inferred" else None,
              "fi_sv": _num(r["fi_sv"]), "fi_en": _num(r["fi_en"]), "score": _num(r["score"]),
              "missing_sv": r["missing_sv"], "missing_en": r["missing_en"]} for r in rows]
     return {"sql": LANG_LINES_SQL, "ms": ms, "data": data}
