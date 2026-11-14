@@ -273,3 +273,16 @@ table.wl td.art small { color: var(--muted); font-size: 12px; }
 .sqlcontent pre { margin: 0; padding: 12px 14px; overflow: auto; font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; color: #c9d1e0; white-space: pre-wrap; }
 .sqlcontent pre b { color: #8ab4ff; font-weight: 600; }
 .sqlcontent pre .c { color: #7d8594; }
+
+/* possible contradictions panel (compare view) */
+.contras { margin: 10px 0; }
+.contras h3 { margin: 0 0 6px; font-size: 14px; }
+.contras ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 260px; overflow: auto; }
+.contras li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  border-left: 3px solid var(--st-contradiction-ink); background: var(--panel); font-size: 13px; }
+.contras li:hover { background: var(--st-contradiction); }
+.contras li.agree { background: var(--st-contradiction); }
+.contras .claim { flex: 1 1 30%; min-width: 0; }
+.contras .vs { color: var(--muted, #888); font-size: 11px; }
+.stag.agree { background: var(--st-contradiction-ink); color: var(--panel); outline: 2px solid var(--st-contradiction-ink); outline-offset: 1px; }
+.cell.covered .txt { color: var(--muted); }   /* nearest sentence, not a one-to-one pair */

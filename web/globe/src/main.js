@@ -20,6 +20,7 @@ const state = {
   sqlTab: 'heat',
   panelSql: null,
   showAll: params.get('all') === '1',   // also draw unchanged links and arcs with an inferred origin
+  topic: params.get('topic'),           // language mode: draw only this topic's lines (?topic=Q211855)
 };
 const METRIC = {
   knowledge: { hint: 'Links pointing to each place on 1 January, plus the size of the articles about it.',
@@ -305,7 +306,7 @@ async function renderLanguage(seq) {
   globe.polygonsData(countryFeatures);
   const topics = langLines.data;
   const rank = { sv: pctRank(topics.map((t) => t.fi_sv)), en: pctRank(topics.map((t) => t.fi_en)) };
-  const dots = topics.map((t) => ({ lang: true, topic: t, wikidata_id: t.wikidata_id, title: t.titles.fi,
+  const dots = topics.filter((t) => !state.topic || t.wikidata_id === state.topic).map((t) => ({ lang: true, topic: t, wikidata_id: t.wikidata_id, title: t.titles.fi,
     inferred: t.located_by === 'inferred',
     lat: t.lat, lon: t.lon, value: (rank.sv(t.fi_sv) + rank.en(t.fi_en)) / 2,
     t: (rank.sv(t.fi_sv) + rank.en(t.fi_en)) / 2 }));
@@ -313,6 +314,9 @@ async function renderLanguage(seq) {
   // Most different on top: draw the calm lines first.
   const lines = topics.flatMap((t) => ['sv', 'en'].map((l) => ({ lang: l, topic: t, t: rank[l](t[`fi_${l}`]),
     from: { lat: t.lat, lon: t.lon }, to: LANG_END[l] }))).sort((a, b) => a.t - b.t);
+  // ?topic=: one article's dot and two lines only. Several articles can share a point (e.g. 9 sit at Finland's
+  // centre), and their lines to London overlap exactly, so a focused view is the only unambiguous click.
+  if (state.topic) lines.splice(0, lines.length, ...lines.filter((x) => x.topic.wikidata_id === state.topic));
   globe.arcsData(lines);
   $('lang-count').textContent = fmt(topics.length);
   // Labels: the two languages, then the most different articles.

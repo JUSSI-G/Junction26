@@ -10,7 +10,8 @@ const COLS = [
   { key: 'fi_en', label: 'fi ↔ en', title: 'Whole-article cosine distance between the Finnish and English versions', scale: 'max', digits: 3 },
   { key: 'missing_sv', label: 'Missing sv', title: 'Finnish sentences with no matching sentence in Swedish', scale: 'max' },
   { key: 'missing_en', label: 'Missing en', title: 'Finnish sentences with no matching sentence in English', scale: 'max' },
-  { key: 'contradictions', label: 'Contradictions', title: 'Matched sentence pairs that Gemma judged to disagree on a fact', scale: 'max', tone: 'bad' },
+  { key: 'contradictions', label: 'Possible contradictions', title: 'Matched sentence pairs that Gemma 27B judged to disagree on a fact (check the sources)', scale: 'max', tone: 'bad' },
+  { key: 'framing', label: 'Framing', title: 'Matched sentence pairs that Gemma 27B judged to tell the same fact with a different slant', scale: 'max' },
   { key: 'edit_war_score', label: 'Edit war', title: 'Edit-war activity in the Finnish history: reverts and sentences that came back (0–1)', scale: 'unit', tone: 'war' },
 ]
 

@@ -13,17 +13,24 @@ export const STATUS = {
   match: { label: 'Match', help: 'Same claim in both languages' },
   partial: { label: 'Partial', help: 'One sentence says only part of what the other says' },
   framing: { label: 'Framing', help: 'Same fact, told with a different slant or tone' },
-  contradiction: { label: 'Contradiction', help: 'The two disagree on a fact: a number, date or name' },
+  contradiction: { label: 'Possible contradiction', help: 'Gemma thinks the two disagree on a fact (a number, date or name). Check the sources: about half of single-model flags are false alarms' },
   missing: { label: 'Missing', help: 'No sentence in this language matches (distance above the threshold)' },
 }
 const SEVERITY = ['contradiction', 'framing', 'missing', 'partial', 'match']
 
+// The sv / en sentence shown for a Finnish sentence: its aligned partner, else the sentence that covers
+// it (nearest within the threshold, not one-to-one: e.g. one English sentence saying what two Finnish do).
+const cellOf = (row, lang) => row[lang] || (lang !== 'fi' && row.fi ? row.covered_by?.[lang] : null) || null
+// Judgements of this cell's pair, one per model; the API sorts "both models agree" and the most
+// serious label first.
+const judgementsOf = (row, lang) => (row.judgements || []).filter((x) => x.lang === lang)
+
 // The status of one cell. Finnish is the reference column, so it is coloured only when it is missing.
 function cellStatus(row, lang) {
   if (lang === 'fi') return row.fi ? null : 'missing'
-  if (!row[lang]) return row.fi ? 'missing' : null // only_sv rows: the en cell is simply empty
+  if (!cellOf(row, lang)) return row.fi ? 'missing' : null // only_sv rows: the en cell is simply empty
   if (!row.fi) return null // the sentence that exists only here
-  const j = row.judgements?.find((x) => x.lang === lang)
+  const j = judgementsOf(row, lang)[0]
   if (!j || j.label === 'same') return 'match'
   return STATUS[j.label] ? j.label : 'match'
 }
@@ -56,6 +63,10 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
 
   if (!res) return <div className="panel muted">{error ? `API error: ${error}` : 'Loading…'}</div>
   const { topic, scores, rows } = res
+  const openRow = (i) => {
+    setFilter('all'); setSel(i)
+    setTimeout(() => document.getElementById(`row-${i}`)?.scrollIntoView({ block: 'start' }), 0)
+  }
   const shown = rows.map((r, i) => ({ r, i })).filter(({ r }) => {
     const s = rowStatus(r)
     return filter === 'all' || (filter === 'problems' ? s !== 'match' : s === filter)
@@ -88,6 +99,8 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
         </div>
       </div>
 
+      <Contradictions items={res.contradictions || []} onOpen={openRow} />
+
       <div className="cmpgrid">
         <div className="cmprow cmpcols">
           <div className="stripe" />
@@ -104,7 +117,7 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
         </div>
         {shown.map(({ r, i }) => (
           <React.Fragment key={i}>
-            <div className={`cmprow ${sel === i ? 'sel' : ''}`} onClick={() => setSel(sel === i ? null : i)}>
+            <div id={`row-${i}`} className={`cmprow ${sel === i ? 'sel' : ''}`} onClick={() => setSel(sel === i ? null : i)}>
               <div className={`stripe ${rowStatus(r)}`} title={STATUS[rowStatus(r)].label} />
               {LANGS.map((l) => <Cell key={l} row={r} lang={l} />)}
             </div>
@@ -125,25 +138,32 @@ export default function Compare({ wikidataId, onBack, onHistory }) {
 
 function Cell({ row, lang }) {
   const s = cellStatus(row, lang)
-  const c = row[lang]
-  const j = lang !== 'fi' ? row.judgements?.find((x) => x.lang === lang) : null
+  const c = cellOf(row, lang)
+  const covered = c && !row[lang]
+  const js = lang !== 'fi' ? judgementsOf(row, lang) : []
+  const j = js[0]
 
   if (!c) {
     if (!s) return <div className="cell empty" />
-    const from = LANGS.filter((l) => l !== lang && row[l]).join(' / ')
+    const from = LANGS.filter((l) => l !== lang && cellOf(row, l)).join(' / ')
     return <div className="cell missing"><span className="gap">Missing in {LANG_NAME[lang]}{from ? ` (present in ${from})` : ''}</span></div>
   }
   return (
-    <div className={`cell ${s || ''}`}>
+    <div className={`cell ${s || ''} ${covered ? 'covered' : ''}`}>
       <span className="txt">{c.text}</span>
       <span className="meta">
         {s && s !== 'match' && <span className={`stag ${s}`}>{STATUS[s].label}</span>}
+        {j?.both_models_agree && <span className="stag agree" title={js.map((x) => x.model).join(' + ')}>both models agree</span>}
+        {covered && <span title="Not a one-to-one pair: this is the nearest sentence, and it may also cover other Finnish sentences">covers it</span>}
         {c.distance != null && <span title="Cosine distance to the Finnish sentence">d {c.distance.toFixed(3)}</span>}
         {!row.fi && <span>no Finnish match</span>}
       </span>
       {lang !== 'fi' && row.fi && (
         <span className="tip">
-          {j ? (<><b>{j.label === 'same' ? 'Same claim' : STATUS[j.label]?.label || j.label}</b> — {j.reason}<small>explained by {j.model}</small></>)
+          {js.length ? js.map((x) => (
+            <React.Fragment key={x.model}>
+              <b>{x.label === 'same' ? 'Same claim' : STATUS[x.label]?.label || x.label}</b> — {x.reason}<small>{x.model}</small>
+            </React.Fragment>))
              : (<><b>Not judged yet</b> — matched by embedding only (distance {c.distance?.toFixed(3)}).</>)}
         </span>
       )}
@@ -157,13 +177,14 @@ function FixPanel({ row, topic }) {
   for (const l of LANGS) {
     const s = cellStatus(row, l)
     if (!s || s === 'match') continue
-    const j = row.judgements?.find((x) => x.lang === l)
+    const js = judgementsOf(row, l)
+    const j = js[0]
     if (s === 'missing') {
-      const src = LANGS.filter((o) => o !== l && row[o])
-      tasks.push({ key: l, kind: s, title: `${LANG_NAME[l]} does not have this`, edit: [l], refs: src.map((o) => [o, row[o].text]) })
+      const src = LANGS.filter((o) => o !== l && cellOf(row, o))
+      tasks.push({ key: l, kind: s, title: `${LANG_NAME[l]} does not have this`, edit: [l], refs: src.map((o) => [o, cellOf(row, o).text]) })
     } else {
-      tasks.push({ key: l, kind: s, title: s === 'contradiction' ? `Finnish and ${LANG_NAME[l]} disagree: check the sources` : `Finnish and ${LANG_NAME[l]} tell it differently`,
-                   reason: j?.reason, model: j?.model, edit: ['fi', l], refs: [['fi', row.fi.text], [l, row[l].text]] })
+      tasks.push({ key: l, kind: s, title: s === 'contradiction' ? (j?.note || `Possible contradiction, check the sources`) + ` (Finnish vs ${LANG_NAME[l]})` : `Finnish and ${LANG_NAME[l]} tell it differently`,
+                   reason: j?.reason, model: js.map((x) => x.model).join(' + '), edit: ['fi', l], refs: [['fi', row.fi.text], [l, cellOf(row, l).text]] })
     }
   }
   if (!tasks.length) return <div className="fix"><p className="muted">All three versions agree here. Nothing to fix.</p></div>
@@ -190,6 +211,29 @@ function FixPanel({ row, topic }) {
         </div>
       ))}
       <p className="muted small">Opens Wikipedia's own editor. You write the edit and cite a source; this tool never edits Wikipedia.</p>
+    </div>
+  )
+}
+
+// Gemma's possible contradictions for this topic (top-level `contradictions` of /api/compare): the ones
+// both models agree on first. Click one to jump to its row.
+function Contradictions({ items, onOpen }) {
+  if (!items.length) return null
+  const agreed = items.filter((c) => c.both_models_agree).length
+  return (
+    <div className="panel contras">
+      <h3>Possible contradictions <small className="muted">{items.length} · {agreed} where both models agree · check the sources before editing</small></h3>
+      <ol>
+        {items.map((c) => (
+          <li key={`${c.row}-${c.lang}`} className={c.both_models_agree ? 'agree' : ''} onClick={() => onOpen(c.row)}>
+            {c.both_models_agree && <span className="stag agree">both models agree</span>}
+            <span className="lang">fi</span><span className="claim">{c.fi_claim || c.fi.text}</span>
+            <span className="vs">vs</span>
+            <span className="lang">{c.lang}</span><span className="claim">{c.other_claim || c.other.text}</span>
+            <small className="muted">{c.models.map((m) => m.replace('google/', '')).join(' + ')}</small>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }

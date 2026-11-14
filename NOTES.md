@@ -1083,3 +1083,40 @@ manifesto, 80k vs 100k). So the UI shows both, with "both models agree" first.
 `/api/compare/Q211855` now lists the 4 agreed contradictions first ("Possible contradiction, check the
 sources (both models agree)"), then the 11 that only the 27B flags. The worklist counts stay on the
 27B. Tests: 76 passed.
+
+## Combined: jussi-editor + jesse-editor merged (2026-11-14 night)
+
+**Merge** (`combined`):
+- `origin/jussi-editor` merged as a fast-forward.
+- `origin/jesse-editor` (worklist and compare React views, Verda embedding script, Gemma judge and eval,
+  process log) merged with one conflict, in `docs/contracts.md` b: both sides added `fi_claim`,
+  `other_claim` and `same_specific_fact`. Resolution:
+  - Jesse's sharper column definitions and label rules.
+  - My import paragraph.
+  - Both change-log entries.
+- NOTES.md, process-log and mocks merged cleanly.
+
+**Real API in the build:** `web/.env.production` sets `VITE_EDITOR_MOCKS=0`, so `npm run build` (served
+under `/contested/`) uses `/api/worklist` and `/api/compare`. `npm run dev:mock` still uses the mocks.
+
+**Wiring Jesse's views to the real responses** (small changes to `web/src/views/Compare.jsx`):
+- `covered_by`: a covered sentence is shown in grey with "covers it", instead of "Missing".
+- All models' judgements per cell: the tooltip lists each model's reason; the fix panel says which models.
+- Wording: "Possible contradiction"; the fix panel uses the API's `note` ("… check the sources (both
+  models agree)").
+- New "Possible contradictions" panel above the grid (`contradictions` from the API): the 4 where both
+  models agree come first; a click jumps to the row and opens its fix panel.
+- Worklist: a "Framing" column next to "Possible contradictions".
+
+**Globe:** new `?topic=Q…` parameter for language mode: only that article's dot and two lines.
+- Why it was needed: 9 topics sit at Finland's centre point (65 N, 27 E: their `page_place` is "Suomi",
+  the 1918 war among them), and their lines to London overlap exactly. Hovering there showed another
+  article, and a click opened another topic (Q1255927).
+
+**Playwright check** (`cd web/globe; npm run editor-flow`, real API):
+- globe → hover the 1918 war's English line → click → `/contested/#compare/Q211855`
+- No mock note; 1,157 rows; 271 label tags; 15 possible contradictions, **the 4 "both models agree"
+  first**; click one → its row and fix panel.
+- Screenshots: `docs/screenshots/editor-flow-{0-globe-language,1-globe-line-hover,2-compare,3-contradiction-row,4-gemma-reasons}.png`.
+
+Tests: 76 passed.

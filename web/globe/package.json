@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "editor-flow": "node scripts/editor-flow.mjs"
   },
   "dependencies": {
     "globe.gl": "^2.41.0"
