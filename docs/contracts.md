@@ -68,6 +68,7 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
            "score": 0.81,
            "fi_sv": 0.212, "fi_en": 0.168,
            "missing_sv": 41, "missing_en": 23,
+           "missing_in_fi": {"sv": 11, "en": 42},
            "contradictions": 2,
            "edit_war_score": 0.74}]}
 ```
@@ -75,8 +76,11 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 - Topics flagged as **different subject** (one Wikidata id, but the language versions are about
   different things, e.g. *Renki* = a Finnish farmhand vs *Farmworker*) are left out;
   `?include_flagged=1` puts them back, at the end of the list.
-- `fi_sv`, `fi_en`: whole-article cosine distance between the language versions.
-- `missing_sv` / `missing_en`: Finnish sentences with no match above the threshold in that language.
+- `fi_sv`, `fi_en`: whole-article cosine distance between the language versions (raw; the score
+  uses it after removing what the length difference explains).
+- `missing_sv` / `missing_en`: Finnish sentences with **no sentence in that language closer than 0.418**
+  (the nearest one, mutual or not).
+- `missing_in_fi`: the reverse, sv / en sentences with no Finnish sentence closer than 0.418.
 - `contradictions`: pairs that Gemma labelled `contradiction`.
 - `edit_war_score`: 0..1, from the Finnish article's history (reverts, sentences that came back).
 - Any number can be `null` when that stage has not run yet.
@@ -93,6 +97,7 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
  "rows": [{"fi": {"sent_no": 0, "text": "…"},
            "sv": {"sent_no": 0, "text": "…", "distance": 0.11},
            "en": {"sent_no": 0, "text": "…", "distance": 0.09},
+           "covered_by": {"sv": null, "en": null},
            "status": "match",
            "judgements": [{"lang": "en", "label": "same", "reason": "…", "model": "…"}]}]}
 ```
@@ -102,18 +107,24 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 
 | status | meaning |
 |---|---|
-| `match` | the fi sentence has a match in sv **and** en |
-| `missing_sv` | the fi sentence has no match in sv (`sv: null`) |
-| `missing_en` | no match in en (`en: null`) |
-| `only_sv` / `only_en` | a sv / en sentence that no fi sentence matches (`fi: null`) |
+| `match` | the fi sentence is aligned **or** covered in sv **and** en |
+| `missing_sv` | nothing in sv closer than 0.418 (`sv` and `covered_by.sv` are null) |
+| `missing_en` | nothing in en closer than 0.418 |
+| `only_sv` / `only_en` | a sv / en sentence with no Finnish sentence closer than 0.418 (`fi: null`) |
 
   A fi sentence missing from **both** languages has `status: "missing_en"` and both `sv` and `en`
   are null.
 - `judgements` is `[]` until Gemma has run; `lang` says which pair (fi–sv or fi–en) it judges.
 - A topic without sentence data answers `200` with `"rows": []` and
   `"note": "sentence data not computed yet for this topic"` (`topic` and `scores` are filled).
-- A sentence is matched when it and its partner are each other's best match (**mutual**) and their
-  distance is below **0.418**. Each sv / en sentence appears in at most one row.
+- **Alignment** (`sv` / `en` cells): a sentence and its partner are each other's best match (**mutual**)
+  and closer than **0.418**. Each sv / en sentence is aligned in at most one row.
+- **`covered_by`** (`{"sv": cell|null, "en": cell|null}`, on every row): when a Finnish sentence is not
+  aligned in a language but its nearest sentence there is closer than 0.418, that sentence is given here
+  (typically one English sentence saying what two Finnish ones say). The same sv / en sentence can cover
+  several rows. Always `{"sv": null, "en": null}` on `only_*` rows.
+- An sv / en sentence that is close to a Finnish sentence but aligned with none is not listed as a row
+  of its own (it is not missing in Finnish); it may appear in `covered_by`.
 
 ## Changes
 
@@ -122,3 +133,6 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
   `sentences()` / `split_sentences()`.
 - 2026-11-14: worklist `?include_flagged=`; compare `note` when there is no sentence data; matched =
   mutual best match below 0.418. Both responses also carry `ms` (database time).
+- 2026-11-14 (stage 1c): **missing = nothing within 0.418** (no longer "no mutual match"); worklist
+  **`missing_in_fi`**; compare rows **`covered_by`**, and `status` counts a covered sentence as present.
+  Mocks updated.

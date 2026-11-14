@@ -46,6 +46,7 @@ def test_worklist_matches_the_contract(client):
     rows = body["data"]
     assert rows and all(set(x) == mock_keys for x in rows)
     assert all(set(x["titles"]) == {"fi", "sv", "en"} for x in rows)
+    assert all(set(x["missing_in_fi"]) == {"sv", "en"} for x in rows)
     scores = [x["score"] for x in rows]
     assert scores == sorted(scores, reverse=True) and 0 <= min(scores) and max(scores) <= 1
     flagged = client.get("/api/worklist?limit=3000&include_flagged=1").json()["data"]
@@ -66,9 +67,17 @@ def test_compare_hero_matches_the_contract(client, q):
     fi = [x["fi"]["sent_no"] for x in rows if x["fi"]]
     assert fi == sorted(fi) and fi == list(range(len(fi)))      # every Finnish sentence, in order
     for x in rows:
-        assert set(x) == {"fi", "sv", "en", "status", "judgements"}
+        assert set(x) == {"fi", "sv", "en", "covered_by", "status", "judgements"}
+        assert set(x["covered_by"]) == {"sv", "en"}
+        for lang in ("sv", "en"):
+            here = x[lang] or x["covered_by"][lang]
+            assert x[lang] is None or x["covered_by"][lang] is None       # aligned OR covered, not both
+            if here and x["fi"]:
+                assert here["distance"] <= 0.418          # shown rounded to 3 decimals
         if x["status"] == "match":
-            assert x["sv"]["distance"] < 0.418 and x["en"]["distance"] < 0.418
+            assert (x["sv"] or x["covered_by"]["sv"]) and (x["en"] or x["covered_by"]["en"])
+        if x["status"] == "missing_en":
+            assert x["en"] is None and x["covered_by"]["en"] is None
         if x["status"].startswith("only_"):
             assert x["fi"] is None and x[x["status"][5:]] is not None
     for lang in ("sv", "en"):                                     # each sv / en sentence at most once
@@ -100,3 +109,18 @@ def test_lang_lines_for_the_globe(client):
     kept = {x["wikidata_id"] for x in client.get("/api/worklist?limit=3000").json()["data"]}
     assert not (set(by_id) & (flagged - kept))                     # different-subject topics hidden
     assert all(0 <= r["fi_sv"] <= 2 and 0 <= r["fi_en"] <= 2 for r in rows)
+
+
+def test_missing_counts_agree_between_worklist_and_compare(client):
+    """missing_en in the worklist = the compare rows with status missing_en (nothing within 0.418)."""
+    work = {x["wikidata_id"]: x for x in client.get("/api/worklist?limit=3000").json()["data"]}
+    for q in ("Q29207", "Q211855"):
+        rows = client.get(f"/api/compare/{q}").json()["rows"]
+        assert sum(r["status"] == "missing_en" for r in rows) == work[q]["missing_en"]
+        assert sum(r["status"] == "only_en" for r in rows) == work[q]["missing_in_fi"]["en"]
+
+
+def test_subject_override(client):
+    """db/subject_overrides.tsv: Maunu Eerikinpojan maanlaki is the same law in every language."""
+    kept = {x["wikidata_id"] for x in client.get("/api/worklist?limit=3000").json()["data"]}
+    assert "Q339275" in kept

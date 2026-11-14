@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from api.places import query, render
+from db.lang_match import THRESHOLD
 
 router = APIRouter(tags=["editor"])
 LANGS = ("fi", "sv", "en")
@@ -21,7 +22,7 @@ def _num(v, nd=3):
 
 WORKLIST_SQL = """SELECT d.wikidata_id, fi.title AS title_fi, sv.title AS title_sv, en.title AS title_en,
        d.fi_page_id, d.score, d.fi_sv, d.fi_en, d.missing_sv, d.missing_en,
-       d.contradictions, d.edit_war_score
+       d.missing_in_fi_sv, d.missing_in_fi_en, d.contradictions, d.edit_war_score
 FROM article_divergence d
 JOIN lang_topic t USING (wikidata_id)
 JOIN lang_article fi ON fi.lang = 'fi' AND fi.page_id = t.fi_page_id
@@ -43,6 +44,7 @@ def worklist(limit: int = Query(50, ge=1, le=3000), include_flagged: bool = Fals
              "fi_page_id": r["fi_page_id"], "score": _num(r["score"]),
              "fi_sv": _num(r["fi_sv"]), "fi_en": _num(r["fi_en"]),
              "missing_sv": r["missing_sv"], "missing_en": r["missing_en"],
+             "missing_in_fi": {"sv": r["missing_in_fi_sv"], "en": r["missing_in_fi_en"]},
              "contradictions": r["contradictions"], "edit_war_score": _num(r["edit_war_score"])}
             for r in rows]
     return {"sql": render(sql, (limit,)), "ms": ms, "data": data}
@@ -62,10 +64,14 @@ JOIN lang_article_vector s ON s.lang = 'sv' AND s.page_id = t.sv_page_id
 JOIN lang_article_vector e ON e.lang = 'en' AND e.page_id = t.en_page_id
 WHERE t.wikidata_id = ?"""
 
-# Every Finnish sentence, with its matched sv / en sentence (mutual best match closer than 0.418).
-FI_ROWS_SQL = """SELECT f.sent_no, f.text,
+# Every Finnish sentence, with its aligned sv / en sentence (mutual best match closer than the
+# threshold), and otherwise the sentence that covers it (its nearest one, closer than the threshold,
+# but not mutual: e.g. one English sentence that says what two Finnish ones say).
+FI_ROWS_SQL = f"""SELECT f.sent_no, f.text,
        ps.other_sent AS sv_sent, s.text AS sv_text, ps.distance AS sv_distance,
-       pe.other_sent AS en_sent, e.text AS en_text, pe.distance AS en_distance
+       pe.other_sent AS en_sent, e.text AS en_text, pe.distance AS en_distance,
+       cs.other_sent AS cov_sv_sent, s2.text AS cov_sv_text, cs.distance AS cov_sv_distance,
+       ce.other_sent AS cov_en_sent, e2.text AS cov_en_text, ce.distance AS cov_en_distance
 FROM lang_topic t
 JOIN lang_sentence f ON f.lang = 'fi' AND f.page_id = t.fi_page_id
 LEFT JOIN lang_pair ps ON ps.wikidata_id = t.wikidata_id AND ps.other_lang = 'sv'
@@ -74,17 +80,24 @@ LEFT JOIN lang_sentence s ON s.lang = 'sv' AND s.page_id = t.sv_page_id AND s.se
 LEFT JOIN lang_pair pe ON pe.wikidata_id = t.wikidata_id AND pe.other_lang = 'en'
      AND pe.direction = 'fi' AND pe.fi_sent = f.sent_no AND pe.matched
 LEFT JOIN lang_sentence e ON e.lang = 'en' AND e.page_id = t.en_page_id AND e.sent_no = pe.other_sent
+LEFT JOIN lang_pair cs ON cs.wikidata_id = t.wikidata_id AND cs.other_lang = 'sv' AND cs.direction = 'fi'
+     AND cs.fi_sent = f.sent_no AND NOT cs.matched AND cs.distance < {THRESHOLD}
+LEFT JOIN lang_sentence s2 ON s2.lang = 'sv' AND s2.page_id = t.sv_page_id AND s2.sent_no = cs.other_sent
+LEFT JOIN lang_pair ce ON ce.wikidata_id = t.wikidata_id AND ce.other_lang = 'en' AND ce.direction = 'fi'
+     AND ce.fi_sent = f.sent_no AND NOT ce.matched AND ce.distance < {THRESHOLD}
+LEFT JOIN lang_sentence e2 ON e2.lang = 'en' AND e2.page_id = t.en_page_id AND e2.sent_no = ce.other_sent
 WHERE t.wikidata_id = ?
 ORDER BY f.sent_no"""
 
-# sv / en sentences that no Finnish sentence matches; placed after their nearest Finnish sentence.
-ONLY_SQL = """SELECT o.lang, o.sent_no, o.text, p.fi_sent AS nearest_fi, p.distance
+# sv / en sentences with NO Finnish sentence closer than the threshold (missing in Finnish); placed
+# after their nearest Finnish sentence.
+ONLY_SQL = f"""SELECT o.lang, o.sent_no, o.text, p.fi_sent AS nearest_fi, p.distance
 FROM lang_topic t
 JOIN lang_sentence o ON o.wikidata_id = t.wikidata_id AND o.lang IN ('sv', 'en')
      AND o.page_id = IF(o.lang = 'sv', t.sv_page_id, t.en_page_id)
 JOIN lang_pair p ON p.wikidata_id = t.wikidata_id AND p.other_lang = o.lang
      AND p.direction = 'other' AND p.other_sent = o.sent_no
-WHERE t.wikidata_id = ? AND NOT p.matched
+WHERE t.wikidata_id = ? AND NOT p.matched AND p.distance >= {THRESHOLD}
 ORDER BY p.fi_sent, o.lang, o.sent_no"""
 
 JUDGEMENTS_SQL = """SELECT fi_sent_no, other_lang, other_sent_no, label, reason, model
@@ -135,18 +148,23 @@ def compare(wikidata_id: str):
             if r["sv_sent"] is not None else None
         en = {"sent_no": r["en_sent"], "text": r["en_text"], "distance": _num(r["en_distance"])} \
             if r["en_sent"] is not None else None
-        status = "missing_en" if en is None else "missing_sv" if sv is None else "match"
+        cov = {l: {"sent_no": r[f"cov_{l}_sent"], "text": r[f"cov_{l}_text"], "distance": _num(r[f"cov_{l}_distance"])}
+               if r[f"cov_{l}_sent"] is not None else None for l in ("sv", "en")}
+        # covered counts as present: the content is there, just not as a one-to-one pair
+        status = ("missing_en" if en is None and cov["en"] is None
+                  else "missing_sv" if sv is None and cov["sv"] is None else "match")
         # judgements belong to this row's own pairs only
         js = [{"lang": j["other_lang"], "label": j["label"], "reason": j["reason"], "model": j["model"]}
               for j in jmap.get(r["sent_no"], [])
               if (j["other_lang"] == "sv" and sv and j["other_sent_no"] == sv["sent_no"])
               or (j["other_lang"] == "en" and en and j["other_sent_no"] == en["sent_no"])]
         rows.append({"fi": {"sent_no": r["sent_no"], "text": r["text"]}, "sv": sv, "en": en,
-                     "status": status, "judgements": js})
+                     "covered_by": cov, "status": status, "judgements": js})
         for o in after.get(r["sent_no"], []):
             cell = {"sent_no": o["sent_no"], "text": o["text"], "distance": _num(o["distance"])}
             rows.append({"fi": None, "sv": cell if o["lang"] == "sv" else None,
                          "en": cell if o["lang"] == "en" else None,
+                         "covered_by": {"sv": None, "en": None},
                          "status": f"only_{o['lang']}", "judgements": []})
     return {"sql": ";\n\n".join(sqls), "ms": round(ms1 + ms2 + ms3 + ms4 + ms5, 2),
             "topic": topic, "scores": scores, "rows": rows}

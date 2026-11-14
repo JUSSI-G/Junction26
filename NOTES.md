@@ -888,3 +888,76 @@ means "most different" ≈ "Finnish is much longer" for many topics.
 ### C. Checks
 Tests **70 passed** (+ `test_lang_lines_for_the_globe`). Screenshots of the normal modes re-taken
 (2014, landing, story) and unchanged apart from the new button.
+
+## Editor tool, stage 1c: a worklist editors can use (2026-11-14)
+
+### 1. "Missing" = nothing within the threshold
+`missing_sv` / `missing_en` = Finnish sentences whose **nearest** sv / en sentence (mutual or not) is
+not closer than 0.418. Alignment in `/api/compare` stays mutual; a Finnish row that is not aligned but
+has a close sentence gets it in **`covered_by`** and counts as present in `status`.
+
+| hero | fi sentences | missing sv | missing en | sv sentences missing in fi | en sentences missing in fi |
+|---|---|---|---|---|---|
+| Sauli Niinistö | 242 | **158** | **82** | 11 of 45 | 42 of 169 |
+| Suomen sisällissota | 870 | **632** | **323** | 146 of 261 | 141 of 558 |
+
+(Stage 1b, mutual-only: Niinistö en 158, 1918 war en 629.) In compare, Niinistö has 76 rows covered in
+English and the 1918 war 306. **Caveat:** coverage within 0.418 can be topical, not factual: Niinistö's
+"the euro was adopted during his ministry" is "covered" by "he became vice president of the European
+Investment Bank" (0.388). Gemma (stage 3) must judge covered pairs too.
+
+### 2. Score = length-adjusted difference + edit war
+- For each pair, a least-squares fit over all 2,919 topics:
+  `distance ≈ a + b·|ln(len_fi / len_other)| + c·ln(min(len_fi, len_other))` (lengths in characters, +1).
+  fi–sv: `0.179 + 0.042·|ln ratio| + 0.0030·ln(shorter)`, R² 25 %; fi–en: `0.220 + 0.037·|ln ratio|
+  − 0.0027·ln(shorter)`, R² 23 %. The **residual** (`fi_sv_resid`, `fi_en_resid`) is what length does
+  not explain; positive = the versions say different things, not just more or less.
+- `score = 0.6 · mean(percentile of fi_sv_resid, percentile of fi_en_resid) + 0.4 · edit-war percentile`.
+- New **`missing_in_fi`** (`{sv, en}`): sv / en sentences with no Finnish sentence within 0.418, for the
+  197 topics with sentence data. Shown, not scored (only 197 of 2,919 have it; see stage 1b).
+- Effect: Suomen sisällissota rises from rank 233 to **79**; Niinistö 1,070 → 1,240.
+
+**New top 10, and why** (residual percentile fi–sv / fi–en, edit-war percentile; lengths fi / sv / en):
+1. **Sortovuodet** | Förtrycksperioderna i Finland | Russification of Finland — p95 / p97, war p95. The
+   Finnish article is the *shortest* (3.6k vs 8.4k / 7.8k chars) yet far from both: it frames the period
+   as "the years of oppression, a name given afterwards"; English frames it as a *policy* of the Russian
+   Empire. Not a length artefact.
+2. **Talonpoika** | Allmoge | Peasant — p99 / p99, war p91. Three different concepts: the Finnish
+   land-owning farmer of the estate society, a Swedish stub on *allmoge* as a social group (432 chars),
+   the feudal peasant in English. Close to a "different subject"; not flagged because the Swedish
+   version is under 5 sentences. **Candidate for the override list.**
+3. **Korjausliike** | De Blåa | Finnish Reform Movement — p99 / p93, war p95 (465 revisions). A party with
+   three names; the Finnish article is detailed (10.7k), Swedish a stub (0.6k).
+4. **Hämäläiset** | Tavaster | Tavastians — p97 / p99. Finnish: the people of Häme, present tense ("are");
+   Swedish and English: an ancient tribe, past tense ("were"). A real framing difference.
+5. **Uhtua** | Kalevala (stad) | Kalevala, Russia — p99 / p95. Finnish uses the Karelian/Finnish name
+   and history; Swedish and English describe a Russian urban locality and its census figures.
+6. **Suomen kansanvaltuuskunta** | Finska folkdelegationen | Finnish People's Delegation — p96 / p92, war
+   p95. The Reds' government of 1918; Finnish 40.9k chars vs 5k / 7.8k: much more, and differently
+   weighted, even after the length fit.
+7. **Kalastajasaarento** | Fiskarhalvön | Rybachy Peninsula — p94 / p97. Same peninsula; Finnish tells it
+   as part of Petsamo's (Finnish) history, English as "the northernmost part of continental European Russia".
+8. **Pähkinälinna** | Nöteborg | Shlisselburg — p97 / p95. The Finnish title is the fortress name, the
+   article (and the others) are about the town; different emphasis and name history.
+9. **Vatja** | Votiska | Votic language — p99 / p98. The language; Swedish is a 702-character stub,
+   English (13k) covers the speakers and revival in depth.
+10. **Viipurin linna** | Viborgs slott | Vyborg Castle — p92 / p94, war p94 (239 revisions, 54 reverts).
+    Finnish starts from the Karelian trading post the castle replaced; Swedish from its founding by the
+    Swedish regent Torgils Knutsson in 1293; English "built by the Swedes". Whose castle it was is told
+    differently.
+*Honest note:* the reasons come from the scores plus reading the three openings; the sentence-level
+evidence is in `/api/compare/<id>` (all ten have sentence data except Viipurin linna).
+
+### 3. Different-subject overrides
+`db/subject_overrides.tsv` (wikidata_id, same|different, note) wins over the rule. First entry:
+**Q339275 Maunu Eerikinpojan maanlaki = same subject** (the same law). Now **9** topics flagged.
+
+### 4. Contract + mocks
+`docs/contracts.md`: missing = nothing within 0.418; worklist `missing_in_fi: {sv, en}`; compare rows
+`covered_by: {sv, en}` (cell or null), `status` counts covered as present; an sv / en sentence that is
+close but not aligned is not a row of its own. `web/mocks/worklist.json` and `compare.json` updated
+(compare: Niinistö fi#4 is now covered in Swedish).
+
+### 5. Checks
+Tests **72 passed** (new: worklist and compare agree on missing counts; the override holds).
+`/api/compare` 49 ms (1918 war) / 140 ms cold (Niinistö).
