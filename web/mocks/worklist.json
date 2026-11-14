@@ -1,5 +1,6 @@
 {
- "sql": "-- MOCK DATA (fake numbers): see docs/contracts.md\nSELECT d.wikidata_id, fi.title AS title_fi, sv.title AS title_sv, en.title AS title_en,\n       t.fi_page_id, d.score, d.fi_sv, d.fi_en, d.missing_sv, d.missing_en,\n       d.missing_in_fi_sv, d.missing_in_fi_en,\n       d.contradictions, d.edit_war_score\nFROM article_divergence d\nJOIN lang_topic t USING (wikidata_id)\nJOIN lang_article fi ON fi.lang = 'fi' AND fi.page_id = t.fi_page_id\nJOIN lang_article sv ON sv.lang = 'sv' AND sv.page_id = t.sv_page_id\nJOIN lang_article en ON en.lang = 'en' AND en.page_id = t.en_page_id\nORDER BY d.score DESC\nLIMIT 50",
+ "sql": "-- MOCK DATA (fake numbers): see docs/contracts.md\nSELECT d.wikidata_id, fi.title AS title_fi, sv.title AS title_sv, en.title AS title_en,\n       t.fi_page_id, d.score, d.fi_sv, d.fi_en, d.missing_sv, d.missing_en,\n       d.missing_in_fi_sv, d.missing_in_fi_en,\n       d.edit_war_score, j.judged_pairs, j.contradictions, j.framing\nFROM article_divergence d\nJOIN lang_topic t USING (wikidata_id)\nLEFT JOIN (SELECT wikidata_id, COUNT(*) AS judged_pairs,\n                  SUM(label = 'contradiction') AS contradictions, SUM(label = 'framing') AS framing\n           FROM pair_judgement WHERE model = 'google/gemma-3-27b-it' GROUP BY wikidata_id) j USING (wikidata_id)\nJOIN lang_article fi ON fi.lang = 'fi' AND fi.page_id = t.fi_page_id\nJOIN lang_article sv ON sv.lang = 'sv' AND sv.page_id = t.sv_page_id\nJOIN lang_article en ON en.lang = 'en' AND en.page_id = t.en_page_id\nORDER BY d.score DESC\nLIMIT 50",
+ "judged_by": "google/gemma-3-27b-it",
  "data": [
   {
    "wikidata_id": "Q211855",
@@ -19,6 +20,8 @@
     "en": 141
    },
    "contradictions": 5,
+   "framing": 30,
+   "judged_pairs": 192,
    "edit_war_score": 0.93
   },
   {
@@ -39,6 +42,8 @@
     "en": 42
    },
    "contradictions": 2,
+   "framing": 12,
+   "judged_pairs": 46,
    "edit_war_score": 0.74
   },
   {
@@ -59,6 +64,8 @@
     "en": 19
    },
    "contradictions": 3,
+   "framing": 18,
+   "judged_pairs": 116,
    "edit_war_score": 0.71
   },
   {
@@ -79,6 +86,8 @@
     "en": 21
    },
    "contradictions": 2,
+   "framing": 12,
+   "judged_pairs": 128,
    "edit_war_score": 0.66
   },
   {
@@ -99,6 +108,8 @@
     "en": 15
    },
    "contradictions": 1,
+   "framing": 6,
+   "judged_pairs": 94,
    "edit_war_score": 0.58
   },
   {
@@ -119,6 +130,8 @@
     "en": 17
    },
    "contradictions": null,
+   "framing": null,
+   "judged_pairs": null,
    "edit_war_score": 0.61
   },
   {
@@ -139,6 +152,8 @@
     "en": 9
    },
    "contradictions": null,
+   "framing": null,
+   "judged_pairs": null,
    "edit_war_score": 0.82
   },
   {
@@ -159,6 +174,8 @@
     "en": 5
    },
    "contradictions": null,
+   "framing": null,
+   "judged_pairs": null,
    "edit_war_score": 0.29
   }
  ]

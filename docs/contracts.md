@@ -48,7 +48,15 @@ Scope: every sentence of the 2,919 topics that exist in all three languages.
 | `reason` | string | one English sentence |
 | `tone_fi` | string | `neutral` \| `loaded` \| `partisan` |
 | `tone_other` | string | `neutral` \| `loaded` \| `partisan` |
-| `model` | string | e.g. `google/gemma-3-12b-it` |
+| `fi_claim` | string | the claim Gemma read from the Finnish sentence (English) |
+| `other_claim` | string | the claim it read from the other sentence |
+| `same_specific_fact` | bool | both sentences are about the same specific fact |
+| `model` | string | e.g. `google/gemma-3-27b-it` |
+
+Import: `python -m ingest.load_judgements [file …]` (default: every `data/verda/judgements*.parquet`).
+It refuses a file whose sentence numbers are not in `lang_sentence`, or whose
+`sentences-{lang}.parquet` texts differ from ours. Re-runnable: a model's rows for the topics in the
+file are replaced; another model's rows (e.g. `judgements-v2-12b.parquet`) are kept beside them.
 
 Labels: `same` = the same claim; `contradiction` = the two disagree on a fact (number, date, name);
 `framing` = the same fact told with a different slant or tone; `partial` = one sentence says only
@@ -69,7 +77,7 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
            "fi_sv": 0.212, "fi_en": 0.168,
            "missing_sv": 41, "missing_en": 23,
            "missing_in_fi": {"sv": 11, "en": 42},
-           "contradictions": 2,
+           "contradictions": 2, "framing": 5, "judged_pairs": 110,
            "edit_war_score": 0.74}]}
 ```
 - Ordered by `score` (descending); `score` is in 0..1, higher = needs an editor more.
@@ -81,7 +89,9 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 - `missing_sv` / `missing_en`: Finnish sentences with **no sentence in that language closer than 0.418**
   (the nearest one, mutual or not).
 - `missing_in_fi`: the reverse, sv / en sentences with no Finnish sentence closer than 0.418.
-- `contradictions`: pairs that Gemma labelled `contradiction`.
+- `contradictions`, `framing`: pairs the **primary model** (`judged_by` at the top of the response,
+  `google/gemma-3-27b-it`) labelled so; `judged_pairs`: how many pairs it judged. All three `null`
+  for a topic not judged yet. Not part of `score` yet.
 - `edit_war_score`: 0..1, from the Finnish article's history (reverts, sentences that came back).
 - Any number can be `null` when that stage has not run yet.
 
@@ -99,7 +109,15 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
            "en": {"sent_no": 0, "text": "…", "distance": 0.09},
            "covered_by": {"sv": null, "en": null},
            "status": "match",
-           "judgements": [{"lang": "en", "label": "same", "reason": "…", "model": "…"}]}]}
+           "judgements": [{"lang": "en", "label": "same", "reason": "…", "model": "…",
+                           "tone_fi": "neutral", "tone_other": "neutral",
+                           "fi_claim": "…", "other_claim": "…", "same_specific_fact": true,
+                           "note": null, "both_models_agree": null}]}],
+ "contradictions": [{"row": 5, "lang": "sv", "fi": {"sent_no": 3, "text": "…"},
+                     "other": {"sent_no": 4, "text": "…", "distance": 0.09},
+                     "note": "Possible contradiction, check the sources (both models agree)",
+                     "both_models_agree": true, "models": ["…12b…", "…27b…"],
+                     "reason": "…", "fi_claim": "…", "other_claim": "…"}]}
 ```
 - `rows` follow the Finnish text order. A sentence that exists only in sv or en gets a row of its own
   (`fi: null`), placed after the Finnish sentence it is nearest to.
@@ -114,7 +132,15 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 
   A fi sentence missing from **both** languages has `status: "missing_en"` and both `sv` and `en`
   are null.
-- `judgements` is `[]` until Gemma has run; `lang` says which pair (fi–sv or fi–en) it judges.
+- `judgements` is `[]` until Gemma has run; `lang` says which pair (fi–sv or fi–en) it judges. One
+  entry per model that judged the pair. Order: "both models agree" first, then contradiction,
+  framing, partial, same.
+- A `contradiction` is never shown as a fact: `note` is **"Possible contradiction, check the
+  sources"** (+ " (both models agree)"); `note` is `null` for other labels.
+- `both_models_agree` (contradictions only): `true` when two or more models call the pair a
+  contradiction, `false` when a second model judged the pair and did not, `null` with one model.
+- `contradictions` (top level): one entry per pair that any model called a contradiction, "both
+  models agree" first, then in text order; `row` is the index into `rows` (rows stay in text order).
 - A topic without sentence data answers `200` with `"rows": []` and
   `"note": "sentence data not computed yet for this topic"` (`topic` and `scores` are filled).
 - **Alignment** (`sv` / `en` cells): a sentence and its partner are each other's best match (**mutual**)
@@ -136,3 +162,7 @@ Both responses carry `sql`: the MariaDB query behind the view, for the SQL drawe
 - 2026-11-14 (stage 1c): **missing = nothing within 0.418** (no longer "no mutual match"); worklist
   **`missing_in_fi`**; compare rows **`covered_by`**, and `status` counts a covered sentence as present.
   Mocks updated.
+- 2026-11-14 (judgements): contract b gains `fi_claim`, `other_claim`, `same_specific_fact` (Jesse's
+  27B run already has them). Worklist: `framing`, `judged_pairs`, top-level `judged_by`; counts from
+  `pair_judgement` (primary model). Compare: judgement objects carry tones, claims, `note`,
+  `both_models_agree`; new top-level `contradictions`. Mocks updated.

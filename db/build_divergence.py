@@ -37,6 +37,7 @@ import numpy as np
 from common.db import ROOT, connect
 from db.lang_distance import SQL as DISTANCE_SQL
 from db.lang_match import THRESHOLD
+from ingest.load_judgements import PRIMARY_MODEL, ensure_table
 
 EXTREME_PERCENTILE = 97
 SUBJECT_SHARE = 0.10
@@ -64,19 +65,6 @@ DDL = [
   rnk                INT,
   KEY (rnk)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
-    # Gemma's judgements (docs/contracts.md b), imported from data/verda/judgements.parquet.
-    """CREATE TABLE IF NOT EXISTS pair_judgement (
-  wikidata_id    VARCHAR(20) NOT NULL,
-  fi_sent_no     INT UNSIGNED NOT NULL,
-  other_lang     CHAR(2) NOT NULL,
-  other_sent_no  INT UNSIGNED NOT NULL,
-  label          ENUM('same', 'contradiction', 'framing', 'partial') NOT NULL,
-  reason         TEXT,
-  tone_fi        ENUM('neutral', 'loaded', 'partisan'),
-  tone_other     ENUM('neutral', 'loaded', 'partisan'),
-  model          VARCHAR(100) NOT NULL,
-  PRIMARY KEY (wikidata_id, other_lang, fi_sent_no, other_sent_no, model)
-) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
 ]
 
 # Per topic, language and direction: sentences, mutual matches, and sentences with nothing closer than
@@ -93,9 +81,9 @@ SELECT t.wikidata_id,
 FROM lang_topic t
 JOIN article_stats s ON s.page_id = t.fi_page_id"""
 
-CONTRADICTIONS_SQL = """
+CONTRADICTIONS_SQL = f"""
 SELECT wikidata_id, SUM(label = 'contradiction') AS contradictions
-FROM pair_judgement GROUP BY wikidata_id"""
+FROM pair_judgement WHERE model = '{PRIMARY_MODEL}' GROUP BY wikidata_id"""
 
 
 def length_residual(dist: np.ndarray, la: np.ndarray, lb: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -124,6 +112,7 @@ def main() -> None:
     cur = con.cursor()
     for ddl in DDL:
         cur.execute(ddl)
+    ensure_table(cur)          # pair_judgement (python -m ingest.load_judgements fills it)
     cur.execute(DISTANCE_SQL)
     topics = {r["wikidata_id"]: r for r in cur.fetchall()}
     cur.execute("SELECT wikidata_id, fi_page_id FROM lang_topic")

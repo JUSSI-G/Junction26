@@ -961,3 +961,89 @@ close but not aligned is not a row of its own. `web/mocks/worklist.json` and `co
 ### 5. Checks
 Tests **72 passed** (new: worklist and compare agree on missing counts; the override holds).
 `/api/compare` 49 ms (1918 war) / 140 ms cold (Niinistö).
+
+## Editor tool: Gemma 27B judgements imported (2026-11-14 evening)
+
+Jesse's Verda run (Gemma 3 27B, `google/gemma-3-27b-it`) arrived as `judgements.parquet`,
+`judgements-detail.csv` and `sentences-{fi,sv,en}.parquet`; copied to `data/verda/` (gitignored).
+There was no `judgements-v2-12b.parquet` yet, so "both models agree" is built and tested, but no real
+pair has it.
+
+### 1. Import: `python -m ingest.load_judgements`
+- **Numbering check:** Jesse's sentences equal our `lang_sentence` exactly on the hero topics:
+  - fi 1,112 (242 + 870), sv 306, en 727
+  - same `sent_no`, same text, 0 differences
+  - All **430** judged pairs are our mutual matches, and the detail CSV's texts agree too.
+- **Table:** `pair_judgement` gains `fi_claim`, `other_claim`, `same_specific_fact`, `source_file` and
+  `imported_at`. The table already existed (empty), so the new columns are added with
+  `ADD COLUMN IF NOT EXISTS`.
+- **Re-runnable:** a model's rows for the topics in a file are replaced, and other models' rows are
+  kept. The second run reported "replaced 430". A file whose sentence numbers are not in
+  `lang_sentence`, or whose sentence texts differ, is refused before anything is written (tested).
+- **Import time:** 0.2 s for 430 rows.
+
+| topic | judged pairs | same | partial | framing | contradiction |
+|---|---|---|---|---|---|
+| Sauli Niinistö | 110 | 37 | 71 | 2 | 0 |
+| Suomen sisällissota | 320 | 59 | 202 | 44 | 15 |
+| **all** | **430** | 96 | 273 | 46 | 15 |
+
+**Honest check of the 15 contradictions (all in the civil war), read by hand:**
+- **7 are real differences in a date or number for the same thing:**
+  - Mannerheim's resignation: 27 vs 25 May
+  - Vaasa senate back in Helsinki: 2 vs 4 May
+  - Reds at Viipuri: 7,000 vs 15,000
+  - the March manifesto: 20 vs 15 March
+  - the armistice: 15 vs 6 December
+  - Mannerheim's disarmament order: 25 vs 27 January
+  - each side's strength: 80,000 vs about 100,000
+- **8 compare different scopes or events:**
+  - combat deaths vs all deaths
+  - prisoners taken vs prisoners in camps at the end
+  - 1921 vs 1919 prisoner counts
+  - the Tokoi senate: Gemma took the 1916 election year for the senate's year
+  - and similar
+- `same_specific_fact` was true for all 15, so it does not filter these out.
+
+So precision is about 50 %. That is why the UI says **"Possible contradiction, check the sources"**,
+never "contradiction". A second model (the 12B run) agreeing should raise precision; that is what
+`both_models_agree` is for.
+
+### 2. `/api/compare`
+- Each row's judgements carry `label`, `reason`, `model`, tones, `fi_claim`, `other_claim`,
+  `same_specific_fact`, `note` and `both_models_agree`.
+- They are attached only when they judge that row's own aligned (or covered) pair. All 430 land
+  (110 + 320).
+- New top-level `contradictions`: one entry per contradiction pair, "both models agree" first, then in
+  text order. `row` points into `rows`; rows themselves stay in text order, since alignment needs that.
+- Time: 1918 war compare ~20 ms.
+
+### 3. `/api/worklist`
+- New fields: `contradictions`, `framing` and `judged_pairs`, live from `pair_judgement` for the
+  primary model (`judged_by: google/gemma-3-27b-it`), and `null` for unjudged topics.
+- Not in the score yet. `article_divergence.contradictions` uses the same model.
+
+### 4. Override
+- **Talonpoika (Q838811) is now a different subject.** fi = the land-holding farmer of the estate
+  society; sv = *Allmoge*, the common people of a district; en = the feudal peasant in general.
+- 10 topics are flagged now, and the worklist moves up one:
+  1. Sortovuodet
+  2. Korjausliike
+  3. Hämäläiset
+  4. Uhtua
+  5. Suomen kansanvaltuuskunta
+  6. Kalastajasaarento
+  7. Pähkinälinna
+  8. Vatja
+  9. Viipurin linna
+  10. Suomen pääministeri (new)
+- Civil war is rank 78, Niinistö 1,239.
+
+### 5. Contract, mocks and checks
+- `docs/contracts.md` b and c, plus both mocks, are updated (the compare mock shows a 12B second opinion
+  agreeing on one pair).
+- Tests: **76 passed**. New tests:
+  - judgement counts agree between the worklist, compare and the table
+  - agreement and sort order (pure function)
+  - the import refuses unknown sentence numbers
+  - Talonpoika is flagged

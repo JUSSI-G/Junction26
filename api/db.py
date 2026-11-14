@@ -27,7 +27,8 @@ LOADERS = {   # table -> the command that creates and fills it
     **dict.fromkeys(["lang_article", "lang_article_vector", "lang_topic"], "python -m ingest.load_lang"),
     "lang_sentence": "python -m ingest.embed_cpu (stage 1) or the Verda import (stage 2)",
     "lang_pair": "python -m db.lang_match",
-    **dict.fromkeys(["article_divergence", "pair_judgement"], "python -m db.build_divergence"),
+    "article_divergence": "python -m db.build_divergence",
+    "pair_judgement": "python -m ingest.load_judgements",
     "article_sentence_order": "python -m ingest.replay --dataset large --sentences-only",
 }
 

@@ -1,5 +1,5 @@
 {
- "sql": "-- MOCK DATA (fake distances and judgements): see docs/contracts.md\nSELECT p.fi_sent, fi.text AS fi_text, p.other_lang, p.other_sent, o.text AS other_text, p.distance\nFROM lang_pair p\nJOIN lang_sentence fi ON fi.lang = 'fi' AND fi.page_id = 1137 AND fi.sent_no = p.fi_sent\nLEFT JOIN lang_sentence o ON o.lang = p.other_lang AND o.page_id = p.other_page AND o.sent_no = p.other_sent\nWHERE p.wikidata_id = 'Q29207'\nORDER BY p.fi_sent, p.other_lang",
+ "sql": "-- MOCK DATA (fake distances and judgements): see docs/contracts.md\nSELECT p.fi_sent, fi.text AS fi_text, p.other_lang, p.other_sent, o.text AS other_text, p.distance\nFROM lang_pair p\nJOIN lang_sentence fi ON fi.lang = 'fi' AND fi.page_id = 1137 AND fi.sent_no = p.fi_sent\nLEFT JOIN lang_sentence o ON o.lang = p.other_lang AND o.page_id = p.other_page AND o.sent_no = p.other_sent\nWHERE p.wikidata_id = 'Q29207'\nORDER BY p.fi_sent, p.other_lang;\n\nSELECT fi_sent_no, other_lang, other_sent_no, label, reason, tone_fi, tone_other,\n       fi_claim, other_claim, same_specific_fact, model\nFROM pair_judgement\nWHERE wikidata_id = 'Q29207'\nORDER BY fi_sent_no, other_lang, other_sent_no, model",
  "topic": {
   "wikidata_id": "Q29207",
   "titles": {
@@ -46,16 +46,30 @@
    "status": "match",
    "judgements": [
     {
-     "lang": "sv",
-     "label": "same",
-     "reason": "Both give the same birth date, birthplace and presidential term.",
-     "model": "google/gemma-3-12b-it"
-    },
-    {
      "lang": "en",
      "label": "partial",
      "reason": "The English sentence omits the birthplace Salo.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Niinistö, born 24 Aug 1948 in Salo, was Finland's 12th president 2012-2024.",
+     "other_claim": "Niinistö, born 24 Aug 1948, was Finland's 12th president 2012-2024.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
+    },
+    {
+     "lang": "sv",
+     "label": "same",
+     "reason": "Both give the same birth date, birthplace and presidential term.",
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Niinistö, born 24 Aug 1948 in Salo, was Finland's 12th president 2012-2024.",
+     "other_claim": "Niinistö, born 24 Aug 1948 in Salo, was Finland's 12th president 2012-2024.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -99,16 +113,30 @@
    "status": "match",
    "judgements": [
     {
-     "lang": "sv",
-     "label": "same",
-     "reason": "Same office, years and cabinets.",
-     "model": "google/gemma-3-12b-it"
-    },
-    {
      "lang": "en",
      "label": "same",
      "reason": "Same office, years and cabinets.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Minister of Finance 1996-2003 in Lipponen's cabinets.",
+     "other_claim": "Minister of Finance 1996-2003 in Lipponen's cabinets.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
+    },
+    {
+     "lang": "sv",
+     "label": "same",
+     "reason": "Same office, years and cabinets.",
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Minister of Finance 1996-2003 in Lipponen's cabinets.",
+     "other_claim": "Minister of Finance 1996-2003 in Lipponen's cabinets.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -136,14 +164,41 @@
     {
      "lang": "sv",
      "label": "contradiction",
+     "reason": "The end year of his term as Speaker differs (2011 vs 2010).",
+     "model": "google/gemma-3-12b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Speaker of Parliament 2007-2011.",
+     "other_claim": "Speaker of Parliament 2007-2010.",
+     "same_specific_fact": true,
+     "note": "Possible contradiction, check the sources (both models agree)",
+     "both_models_agree": true
+    },
+    {
+     "lang": "sv",
+     "label": "contradiction",
      "reason": "The Finnish text says his term as Speaker ended in 2011, the Swedish text says 2010.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Speaker of Parliament 2007-2011.",
+     "other_claim": "Speaker of Parliament 2007-2010.",
+     "same_specific_fact": true,
+     "note": "Possible contradiction, check the sources (both models agree)",
+     "both_models_agree": true
     },
     {
      "lang": "en",
      "label": "same",
      "reason": "Same office and years.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Speaker of Parliament 2007-2011.",
+     "other_claim": "Speaker of Parliament 2007-2011.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -187,7 +242,27 @@
      "lang": "en",
      "label": "contradiction",
      "reason": "The vote share differs: 62.6 percent in Finnish, 62.7 percent in English.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Won the 2012 runoff against Haavisto with 62.6 %.",
+     "other_claim": "Won the 2012 runoff against Haavisto with 62.7 %.",
+     "same_specific_fact": true,
+     "note": "Possible contradiction, check the sources",
+     "both_models_agree": false
+    },
+    {
+     "lang": "en",
+     "label": "same",
+     "reason": "Same election, same opponent; the share rounds alike.",
+     "model": "google/gemma-3-12b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Won the 2012 runoff against Haavisto with 62.6 %.",
+     "other_claim": "Won the 2012 runoff against Haavisto with 62.7 %.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -213,16 +288,30 @@
    "status": "match",
    "judgements": [
     {
-     "lang": "sv",
-     "label": "same",
-     "reason": "Both say he won re-election in the first round in 2018.",
-     "model": "google/gemma-3-12b-it"
-    },
-    {
      "lang": "en",
      "label": "same",
      "reason": "Both say he won re-election in the first round in 2018.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Re-elected in 2018 in the first round.",
+     "other_claim": "Re-elected in 2018 in the first round.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
+    },
+    {
+     "lang": "sv",
+     "label": "same",
+     "reason": "Both say he won re-election in the first round in 2018.",
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "neutral",
+     "tone_other": "neutral",
+     "fi_claim": "Re-elected in 2018 in the first round.",
+     "other_claim": "Re-elected in 2018 in the first round.",
+     "same_specific_fact": true,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -247,7 +336,14 @@
      "lang": "en",
      "label": "framing",
      "reason": "The Finnish sentence calls his term generally successful, a judgement the English sentence does not make.",
-     "model": "google/gemma-3-12b-it"
+     "model": "google/gemma-3-27b-it",
+     "tone_fi": "loaded",
+     "tone_other": "neutral",
+     "fi_claim": "His term is generally seen as successful; he was exceptionally popular.",
+     "other_claim": "His presidency had high approval ratings.",
+     "same_specific_fact": false,
+     "note": null,
+     "both_models_agree": null
     }
    ]
   },
@@ -301,6 +397,51 @@
    },
    "status": "only_en",
    "judgements": []
+  }
+ ],
+ "contradictions": [
+  {
+   "row": 3,
+   "lang": "sv",
+   "fi": {
+    "sent_no": 3,
+    "text": "Hän oli eduskunnan puhemies vuosina 2007–2011."
+   },
+   "other": {
+    "sent_no": 4,
+    "text": "Han var talman i riksdagen 2007–2010.",
+    "distance": 0.092
+   },
+   "note": "Possible contradiction, check the sources (both models agree)",
+   "both_models_agree": true,
+   "models": [
+    "google/gemma-3-12b-it",
+    "google/gemma-3-27b-it"
+   ],
+   "reason": "The end year of his term as Speaker differs (2011 vs 2010).",
+   "fi_claim": "Speaker of Parliament 2007-2011.",
+   "other_claim": "Speaker of Parliament 2007-2010."
+  },
+  {
+   "row": 5,
+   "lang": "en",
+   "fi": {
+    "sent_no": 4,
+    "text": "Vuoden 2012 presidentinvaalin toisella kierroksella Niinistö sai 62,6 prosenttia äänistä ja voitti Pekka Haaviston."
+   },
+   "other": {
+    "sent_no": 5,
+    "text": "In the second round of the 2012 presidential election, Niinistö defeated Pekka Haavisto with 62.7 percent of the vote.",
+    "distance": 0.081
+   },
+   "note": "Possible contradiction, check the sources",
+   "both_models_agree": false,
+   "models": [
+    "google/gemma-3-27b-it"
+   ],
+   "reason": "The vote share differs: 62.6 percent in Finnish, 62.7 percent in English.",
+   "fi_claim": "Won the 2012 runoff against Haavisto with 62.6 %.",
+   "other_claim": "Won the 2012 runoff against Haavisto with 62.7 %."
   }
  ]
 }
