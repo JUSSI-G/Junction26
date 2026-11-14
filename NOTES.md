@@ -649,3 +649,54 @@ Fixed after looking at them:
 Still imperfect: "Ahvenanmaan maakunta" can be half covered by the Helsinki label; centroid dots for
 continents/regions ("Eurooppa", "Pohjoismaat") get labels in some metrics; play/pause, hover tooltips
 and autoplay are still only checked through screenshots, not by hand.
+
+## Combined app, stage 1: plan + backend (2026-11-14)
+
+Branch `combined` (from `Jussi`) + `git merge origin/Kristian --allow-unrelated-histories`: both
+histories kept. Plan, layout and every conflict: **`docs/merge-plan.md`**.
+
+What was done:
+- `web/` (globe) moved to `web/globe/` in its own commit before the merge, so the two frontends
+  did not collide; the merge itself conflicted only in `.gitignore` (union).
+- My scripts moved into Kristian's packages (`git mv`, history kept): `api.py → api/places.py`
+  (an `APIRouter`), `ingest/{load_parquet,links,kinds,places,labels_en,place_links,build_heat,
+  check_stage1}.py`, `db/{heat_sql,findings,findings_extra}.py`. `common.py` and
+  `create_tables.py` removed in favour of `common/db.py` and `common/schema.py`.
+  Run them as modules now: `.venv\Scripts\python -m ingest.place_links --all`.
+- All my scripts ported from the `mariadb` connector to pymysql (`%s` placeholders). The place
+  router still *shows* `?` SQL in the drawer and converts when it runs it.
+- One schema, `db/schema.sql`: Kristian's tables + the place tables; `article` has both sets of
+  columns. **Live table migrated without a reload** by `python -m common.migrate`: 5 instant ALTERs
+  (`user→editor`, `text→content`, `+n_sentences`, `+sentence_order`, `title VARCHAR(512)`) in
+  0.3 s, then `+rev_key`, `+title_key` (inplace). History kept (`system_versioning_alter_history=KEEP`).
+- One API: `uvicorn api.main:app` = Kristian's sentence routes + my place router. `api/db.py`: one
+  pool, and a missing table answers **503 "Not loaded yet: table X … Load it with: …"**, never a 500.
+- Both old frontends served: `/` = globe (`web/globe/dist`), `/contested/` = React
+  (`web/dist`, Vite `base: '/contested/'`; Kristian's catch-all SPA route replaced by the mount).
+- `common.schema --reset` now refuses on a database whose `article` has > 100,000 versions
+  (`ALLOW_RESET=1` to override): Kristian's tests reset `wiki_test`, which stays fine.
+- `.env.example`: port 3307, database `wiki`. `dev.py places` / `places-dev` run the place pipeline.
+
+### Checks
+- **Place pipeline rerun from the new packages, all 19,742 articles:** places 157 s, place links
+  204 s, heat + arcs 127 s (activity 67 s, was 192 s: the new `article` indexes). Every count equals
+  the pre-merge build: `place` 11,428 · own locations 4,621 · `place_link` 133,491 (113,891 current)
+  · 52,919 versions skipped by the noise filter · `revert` 45,668 · `heat_year` 169,973 ·
+  `page_origin` 286,473 · `arc_year` 145,803.
+- **Page 1150:** 4 / 65 / 107 / 112 places as of 2005 / 2010 / 2018 / now ✔.
+  **2014-02-11 edit:** + Hennalan, Hämeenlinnan, Riihimäen, Suomenlinnan, Tampereen vankileiri,
+  − Tampere, Suomenlinna ✔.
+- **Tests: 64 passed** (`.venv\Scripts\python -m pytest`): Kristian's 33 (`test_history.py` builds its
+  own `wiki_test`, both load modes; `test_sentences.py`) + 31 new in `api/tests/test_places.py`
+  (the 1150 numbers, the camp edit, every place route, errors, every sentence route never 500s).
+- **Kristian's routes on our database:** health, `/api/articles/1150/revisions` and
+  `/api/revisions/{rev_id}` already answer 200 (they only need `article`); as-of, diff, contested,
+  edit wars, drift, term drift, about, map, near, articles, stats answer 503 naming the missing table
+  and its loader. The React app at `/contested/` loads and shows those messages.
+- **API timings unchanged** (`python -m api.check_api`): every place endpoint 1–40 ms, the two
+  "everything" calls 167 / 187 ms, none over 300 ms.
+
+Problem hit: the first rerun used `places.py --all --no-lookup` and gave 4,618 own locations, not
+4,621. One event location (Q2994644, used by 3 articles) was fetched live by the original run but is
+not in `data/places.tsv`, and `--no-lookup` never calls the API. Rerun without the flag: 1 request,
+numbers equal. `--no-lookup` is only for when another run is appending to the cache.

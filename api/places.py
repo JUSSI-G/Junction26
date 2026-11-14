@@ -1,7 +1,7 @@
-"""Stage 4: the API behind the globe. Every response carries the SQL that produced it ("sql"), with
-parameter values filled in for reading, and the database time in ms ("ms").
+"""The place routes: the API behind the globe (heat, arcs, captions, place and article panels).
 
-    .venv\\Scripts\\python -m uvicorn api:app --port 8000
+Every response carries the SQL that produced it ("sql"), with parameter values filled in for
+reading, and the database time in ms ("ms"). Mounted by api/main.py.
 
 GET /api/years                         years with heat data
 GET /api/heat?year=&metric=&limit=     [{title, en_label, lat, lon, value, kind, category, is_country}]
@@ -12,16 +12,13 @@ GET /api/article/{page_id}?date=       the article as of the date, edits and rev
 """
 import time
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import os
-from common import connect, ROOT
-from heat_sql import METRICS, ARC_EVENTS, ARCS, YEAR_TOTALS, BIGGEST_EDITS, for_year
-from textclean import clean
+from fastapi import APIRouter, HTTPException, Query
 
-app = FastAPI(title="Rewritten API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+from api.db import DB_ERRORS, db_error, pool
+from api.textclean import clean
+from db.heat_sql import METRICS, ARC_EVENTS, ARCS, YEAR_TOTALS, BIGGEST_EDITS, for_year
+
+router = APIRouter(tags=["places"])
 
 YEAR_MIN, YEAR_MAX = 2004, 2026
 
@@ -40,17 +37,16 @@ def render(sql, params):
 
 
 def query(sql, params=()):
-    """Run one query on a fresh connection; returns (rows as dicts, ms)."""
-    con = connect()
+    """Run one query on a pooled connection; returns (rows as dicts, ms).
+    SQL is written with ? placeholders (that is what the SQL drawer shows); pymysql wants %s."""
     try:
-        cur = con.cursor()
-        t = time.perf_counter()
-        cur.execute(sql, params)
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-        return rows, round((time.perf_counter() - t) * 1000, 2)
-    finally:
-        con.close()
+        with pool.connection() as con, con.cursor() as cur:
+            t = time.perf_counter()
+            cur.execute(sql.replace("?", "%s") if params else sql, params or None)
+            rows = list(cur.fetchall())
+            return rows, round((time.perf_counter() - t) * 1000, 2)
+    except DB_ERRORS as e:
+        raise db_error(e)
 
 
 def moment(date):
@@ -69,14 +65,14 @@ def check_year(year):
     return year
 
 
-@app.get("/api/years")
+@router.get("/api/years")
 def years():
     sql = "SELECT DISTINCT year FROM heat_year ORDER BY year"
     rows, ms = query(sql)
     return {"sql": sql, "ms": ms, "data": [r["year"] for r in rows]}
 
 
-@app.get("/api/heat")
+@router.get("/api/heat")
 def heat(year: int, metric: str = "knowledge", limit: int = Query(1500, ge=1, le=20000)):
     """Countries first (they are drawn as polygons), then the strongest places, up to `limit`."""
     check_year(year)
@@ -136,7 +132,7 @@ ORDER BY FIELD(x.status, 'added', 'removed', 'same'), t.title
 LIMIT {limit}"""
 
 
-@app.get("/api/arcs")
+@router.get("/api/arcs")
 def arcs(year: int, limit: int = Query(150, ge=1, le=5000), page: int | None = None,
          all: bool = False):
     """Default: the `limit` strongest added and removed arcs with a known origin.
@@ -154,13 +150,13 @@ def arcs(year: int, limit: int = Query(150, ge=1, le=5000), page: int | None = N
             "built_from": for_year(ARCS.replace("{cap}", "1500"), year), "data": arc_rows(rows)}
 
 
-CAPTIONS_SQL = """SELECT c.year, c.added, c.removed, c.page_id, c.title, c.rev_id, c.user, c.comment,
+CAPTIONS_SQL = """SELECT c.year, c.added, c.removed, c.page_id, c.title, c.rev_id, c.editor AS user, c.comment,
        c.saved, c.n_added, c.n_removed{reason}
 FROM year_caption c{join}
 ORDER BY c.year"""
 
 
-@app.get("/api/captions")
+@router.get("/api/captions")
 def captions():
     """Per year: place links added/removed, and the single edit that changed the most links.
     `reason`/`label` come from change_reason (Gemma, stage 7) when that table exists, else null."""
@@ -200,7 +196,7 @@ JOIN article FOR SYSTEM_TIME AS OF TIMESTAMP ? a ON a.page_id = l.page_id
 ORDER BY relation DESC, len DESC"""
 
 
-@app.get("/api/place/{title}")
+@router.get("/api/place/{title}")
 def place(title: str, date: str | None = None, limit: int = Query(200, ge=1, le=2000)):
     """Articles located at the place, and the `limit` articles that link it most, as of the date."""
     m = moment(date)
@@ -220,7 +216,7 @@ def place(title: str, date: str | None = None, limit: int = Query(200, ge=1, le=
             "linking_total": total[0]["linking"], "data": rows}
 
 
-ARTICLE_SQL = """SELECT page_id, title, rev_id, user, comment, len, text, row_start, row_end
+ARTICLE_SQL = """SELECT page_id, title, rev_id, editor, comment, len, content, row_start, row_end
 FROM article FOR SYSTEM_TIME AS OF TIMESTAMP ?
 WHERE page_id = ?"""
 ARTICLE_STATS_SQL = """SELECT COUNT(*) AS edits, COALESCE(SUM(is_revert), 0) AS reverts,
@@ -233,7 +229,7 @@ FROM (SELECT row_start,
 WHERE row_start <= TIMESTAMP ?"""
 
 
-@app.get("/api/article/{page_id}")
+@router.get("/api/article/{page_id}")
 def article(page_id: int, date: str | None = None):
     m = moment(date)
     rows, ms1 = query(ARTICLE_SQL, (m, page_id))
@@ -247,14 +243,8 @@ def article(page_id: int, date: str | None = None):
             "ms": round(ms1 + ms2, 2), "date": m,
             "page_id": a["page_id"], "title": a["title"], "rev_id": a["rev_id"],
             "oldid_url": f"https://fi.wikipedia.org/?oldid={a['rev_id']}",
-            "user": a["user"], "comment": a["comment"], "len": a["len"],
+            "user": a["editor"], "comment": a["comment"], "len": a["len"],
             "saved": str(a["row_start"]), "until": None if current else str(a["row_end"]),
             "edits_to_date": int(stats[0]["edits"]), "reverts_to_date": int(stats[0]["reverts"]),
             "first_edit": str(stats[0]["first_edit"]),
-            "blocks": [{"kind": k, "text": t} for k, t in clean(a["text"])]}
-
-
-# The built frontend (web/globe/dist, from `npm run build` in web/globe/), so one command serves everything.
-_dist = os.path.join(ROOT, "web", "globe", "dist")
-if os.path.isdir(_dist):
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="web")
+            "blocks": [{"kind": k, "text": t} for k, t in clean(a["content"])]}

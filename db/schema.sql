@@ -1,5 +1,11 @@
--- Contested History — schema (owner: P1). Applied by `python -m common.schema`.
--- Frozen contract: change only by team agreement, and log it in docs/decisions.md.
+-- Rewritten + Contested History — the one schema of the combined app. Applied by
+-- `python -m common.schema`. Change only by team agreement, and log it in docs/decisions.md.
+--
+-- Part 1 (sentences): article, article_sentence, sentence_score, sentence_event_time, article_geo,
+--                     article_stats, load_log.
+-- Part 2 (places):    article_list, place, page_place, place_link, heat_year.
+-- Derived tables that are rebuilt from scratch by ingest/build_heat.py (revert, page_origin,
+-- arc_year, year_caption) are created there, next to the queries that fill them.
 --
 -- Core idea: we version *sentences*, not just articles. Every distinct sentence of an article is
 -- a row in article_sentence; when a revision removes it, MariaDB moves it to history; when a
@@ -12,28 +18,37 @@
 -- transaction time, so FOR SYSTEM_TIME AS OF '2012-01-01' means "what Wikipedia said that day".
 -- All sessions use time_zone '+00:00' (Wikipedia times are UTC).
 
--- One row per article; each revision of the article is a history row.
+-- One row per article = what Wikipedia shows today; every earlier version is a history row.
+-- ALL versions are kept here, vandalism included: the place views (ingest/place_links.py) apply
+-- their own 48-hour revert filter, and the sentence views (ingest/history.py) apply the blanking
+-- filter when they build article_sentence. Neither filter removes rows from this table.
+-- Columns come from both builds: parent_id / len / content (always loaded) from the place build,
+-- n_sentences / sentence_order from the sentence build.
+-- A table loaded before the merge is brought to this shape by `python -m common.migrate`.
 CREATE TABLE IF NOT EXISTS article (
-  page_id        INT UNSIGNED NOT NULL,
-  title          VARCHAR(512) NOT NULL,
-  rev_id         BIGINT UNSIGNED NOT NULL,
-  editor         VARCHAR(255),
+  page_id        INT UNSIGNED NOT NULL,        -- Wikipedia's own id
+  title          VARCHAR(512) NOT NULL,        -- can change over time: pages get renamed
+  rev_id         BIGINT UNSIGNED NOT NULL,     -- Wikipedia's id of this version
+  parent_id      BIGINT UNSIGNED,              -- the version this one was edited from
+  editor         VARCHAR(255),                 -- user name or IP address
   anonymous      BOOL NOT NULL DEFAULT 0,      -- IP or temporary account (~2026-…)
-  comment        TEXT,
+  comment        TEXT,                         -- the edit summary
   minor          BOOL NOT NULL DEFAULT 0,
   sha1           CHAR(40),                     -- same hash = same wikitext (reverts)
+  len            INT UNSIGNED,                 -- length of the wikitext in bytes
   n_sentences    INT UNSIGNED NOT NULL DEFAULT 0,
   -- Order of the sentences in this revision: concatenated 32-byte sent_hash values.
   -- Kept here (versioned with the article) so article_sentence rows never have to be updated
   -- just because a sentence moved; an update would create a fake "new life".
   sentence_order MEDIUMBLOB COMPRESSED,
-  content        MEDIUMTEXT COMPRESSED,        -- raw wikitext; NULL unless loaded with --with-content
+  content        MEDIUMTEXT COMPRESSED,        -- raw wikitext, compressed value by value
   row_start      TIMESTAMP(6) GENERATED ALWAYS AS ROW START INVISIBLE,
   row_end        TIMESTAMP(6) GENERATED ALWAYS AS ROW END INVISIBLE,
   PERIOD FOR SYSTEM_TIME (row_start, row_end),
   PRIMARY KEY (page_id),
   KEY rev_key (rev_id),
   KEY title_key (title),
+  KEY (sha1),
   -- MariaDB's own history index is ordered by row_end; "as of <old date>" otherwise scans every
   -- later version (measured in mariadb-system-versioning-wikipedia).
   KEY start_key (page_id, row_start)
@@ -128,3 +143,63 @@ CREATE TABLE IF NOT EXISTS load_log (
   seconds     DOUBLE NOT NULL,
   loaded_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) CHARACTER SET utf8mb4;
+
+
+-- ============================================================ Part 2: places (the globe)
+-- Which article linked which place, and when: the second system-versioned table.
+
+-- The articles loaded, with why they were chosen.
+CREATE TABLE IF NOT EXISTS article_list (
+  page_id  INT UNSIGNED NOT NULL PRIMARY KEY,
+  title    VARCHAR(255) NOT NULL,
+  why      VARCHAR(255)
+) CHARACTER SET utf8mb4;
+
+-- Title columns of the place tables use the binary collation: under the default accent- and
+-- case-insensitive one, 'Salla' and 'Šalla' collide in the primary key.
+
+-- 2. Places: link targets with coordinates (Wikidata P625) whose kind passes the whitelist in
+--    kinds.py, plus articles' own locations (category 'own_location' when not whitelisted).
+CREATE TABLE IF NOT EXISTS place (
+  title      VARCHAR(255) PRIMARY KEY,
+  en_label   VARCHAR(255),                    -- English Wikidata label (labels_en.py)
+  qid        VARCHAR(20),
+  lat        DOUBLE,
+  lon        DOUBLE,
+  kind       VARCHAR(50),                     -- the P31 label that matched the whitelist
+  category   VARCHAR(20),                     -- country/battle/treaty/fortress/settlement/region/island/water
+  is_country BOOL NOT NULL DEFAULT 0          -- drawn as a polygon, not a heat point
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+
+-- 3. The article's own location: its own P625, else its event location (P276 -> P625).
+CREATE TABLE IF NOT EXISTS page_place (
+  page_id     INT UNSIGNED PRIMARY KEY,
+  place_title VARCHAR(255),
+  KEY place_key (place_title)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+
+-- 4. Place links over time, one row per (page, linked place). A row lives from the first
+--    version containing the link to the first version without it; a link that comes back
+--    later is a new history row.
+CREATE TABLE IF NOT EXISTS place_link (
+  page_id     INT UNSIGNED NOT NULL,
+  to_place    VARCHAR(255) NOT NULL,
+  mentions    SMALLINT UNSIGNED NOT NULL,     -- times linked in that version
+  row_start   TIMESTAMP(6) GENERATED ALWAYS AS ROW START INVISIBLE,
+  row_end     TIMESTAMP(6) GENERATED ALWAYS AS ROW END INVISIBLE,
+  PERIOD FOR SYSTEM_TIME (row_start, row_end),
+  PRIMARY KEY (page_id, to_place),
+  KEY start_key (to_place, row_start)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+  WITH SYSTEM VERSIONING;
+
+-- 5. Per-year summary for smooth slider playback, built FROM the SVT queries.
+CREATE TABLE IF NOT EXISTS heat_year (
+  year        SMALLINT NOT NULL,
+  place_title VARCHAR(255) NOT NULL,
+  knowledge   INT,
+  activity    INT,
+  controversy INT,
+  rewritten   INT,
+  PRIMARY KEY (year, place_title)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;

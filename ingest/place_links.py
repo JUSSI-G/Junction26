@@ -1,7 +1,7 @@
 """Stage 3: build the system-versioned `place_link` table — which article linked which place, when.
 
-    .venv\\Scripts\\python place_links.py          # the articles in article_list (50 dev articles)
-    .venv\\Scripts\\python place_links.py --all    # every article in the table
+    .venv\\Scripts\\python -m ingest.place_links          # the articles in article_list (50 dev articles)
+    .venv\\Scripts\\python -m ingest.place_links --all    # every article in the table
 
 Rebuilds place_link from scratch (drop + create from schema.sql) every run.
 
@@ -25,8 +25,9 @@ Link text is mapped to places via data/places.tsv, so "Helsingin kaupunki" count
 import argparse, csv, os, re, time
 from collections import Counter, defaultdict
 from datetime import timedelta
-from common import connect, ROOT
-from links import extract
+import sys
+from common.db import ROOT, connect
+from ingest.links import extract
 
 WINDOW = timedelta(hours=48)
 BATCH_ROWS = 5000
@@ -37,7 +38,8 @@ parser.add_argument("--all", action="store_true")
 args = parser.parse_args()
 
 t_start = time.time()
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 
 # --- places and the link-text -> place mapping
@@ -51,7 +53,7 @@ with open(os.path.join(ROOT, "data", "places.tsv"), encoding="utf-8", newline=""
 print(f"{len(place_set)} places, {len(to_place)} link texts map to them")
 
 # --- recreate place_link (DELETE would leave the history rows behind)
-schema = re.sub(r"--[^\n]*", "", open(os.path.join(ROOT, "schema.sql"), encoding="utf-8").read())
+schema = re.sub(r"--[^\n]*", "", open(os.path.join(ROOT, "db", "schema.sql"), encoding="utf-8").read())
 create = next(s for s in schema.split(";") if "TABLE IF NOT EXISTS place_link" in s)
 cur.execute("DROP TABLE IF EXISTS place_link")
 cur.execute(create)
@@ -61,8 +63,8 @@ scope = "" if args.all else " WHERE page_id IN (SELECT page_id FROM article_list
 cur.execute("SELECT page_id, title FROM article" + scope + " ORDER BY page_id")
 pages = cur.fetchall()
 
-HIST = "INSERT INTO place_link (page_id, to_place, mentions, row_start, row_end) VALUES (?,?,?,?,?)"
-CURR = "INSERT INTO place_link (page_id, to_place, mentions, row_start) VALUES (?,?,?,?)"
+HIST = "INSERT INTO place_link (page_id, to_place, mentions, row_start, row_end) VALUES (%s,%s,%s,%s,%s)"
+CURR = "INSERT INTO place_link (page_id, to_place, mentions, row_start) VALUES (%s,%s,%s,%s)"
 hist_rows, curr_rows = [], []
 
 
@@ -95,8 +97,8 @@ skip_log = open(SKIP_LOG, "w", encoding="utf-8", newline="")
 skip_log.write("page_id\trev_id\ttime\n")
 read = con.cursor()
 for page_id, title in pages:
-    read.execute("""SELECT rev_id, sha1, row_start, row_end > NOW(), row_end, text
-                    FROM article FOR SYSTEM_TIME ALL WHERE page_id = ? ORDER BY row_start""",
+    read.execute("""SELECT rev_id, sha1, row_start, row_end > NOW(), row_end, content
+                    FROM article FOR SYSTEM_TIME ALL WHERE page_id = %s ORDER BY row_start""",
                  (page_id,))
     versions = [{"rev": r, "sha1": s, "time": t, "current": bool(c), "end": e, "text": x}
                 for r, s, t, c, e, x in read.fetchall()]

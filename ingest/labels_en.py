@@ -1,13 +1,13 @@
 r"""English Wikidata labels for the places in `place` (shown next to the Finnish names).
 
-    .venv\Scripts\python labels_en.py
+    .venv\Scripts\python -m ingest.labels_en
 
 Fetches wbgetentities&props=labels&languages=en, 50 ids per request, once per QID: results are
 cached in data/place_labels.tsv (qid, en_label). Then fills place.en_label. Safe to rerun; run it
 after places.py (which also fills en_label from the cache when the file exists).
 """
 import csv, gzip, json, os, time, urllib.parse, urllib.request
-from common import connect, ROOT
+from common.db import ROOT, connect
 
 CACHE = os.path.join(ROOT, "data", "place_labels.tsv")
 USER_AGENT = ("RewrittenJunction2026/0.1 (Junction 2026 hackathon: map of how Finnish Wikipedia "
@@ -45,7 +45,7 @@ def fetch(qids):
 
 
 if __name__ == "__main__":
-    con = connect()
+    con = connect(dict_rows=False)
     cur = con.cursor()
     cur.execute("ALTER TABLE place ADD COLUMN IF NOT EXISTS en_label VARCHAR(255) AFTER title")
     cur.execute("SELECT DISTINCT qid FROM place WHERE qid IS NOT NULL AND qid <> ''")
@@ -66,7 +66,7 @@ if __name__ == "__main__":
                 labels[q] = got.get(q, "")
                 w.writerow([q, labels[q]])
             f.flush()
-    cur.executemany("UPDATE place SET en_label = ? WHERE qid = ?",
+    cur.executemany("UPDATE place SET en_label = %s WHERE qid = %s",
                     [(labels[q][:255] or None, q) for q in qids])
     con.commit()
     cur.execute("SELECT COUNT(*), COUNT(en_label), SUM(en_label <> title) FROM place")

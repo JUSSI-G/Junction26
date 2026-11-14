@@ -1,5 +1,12 @@
 # Contested History
 
+> **Combined app (branch `combined`, mid-merge).** This repository now holds two builds in one
+> backend: *Contested History* (below: sentence-level history) and *Rewritten* (places and place
+> links over time, the globe; see `NOTES.md`). One schema (`db/schema.sql`), one connection module
+> (`common/db.py`), one API (`uvicorn api.main:app`): `/` serves the place globe, `/contested/` the
+> React views. Layout, conflicts and next steps: [docs/merge-plan.md](docs/merge-plan.md).
+> Local setup on the dev PC: MariaDB 13 service on port 3307 (`.env`, see `.env.example`), no Docker.
+
 **Which parts of Finnish history does Wikipedia keep rewriting, sentence by sentence?**
 
 Junction 2026 · MariaDB *Wikipedia Through Time* (SVT track) · Best Use of Gemma · Best Use of Verda

@@ -68,9 +68,9 @@ export default function GlobeView({ onOpen }) {
             ref={globeRef}
             width={width}
             height={height}
-            globeImageUrl="/earth-night.jpg"
-            bumpImageUrl="/earth-topology.png"
-            backgroundImageUrl="/night-sky.png"
+            globeImageUrl={`${import.meta.env.BASE_URL}earth-night.jpg`}
+            bumpImageUrl={`${import.meta.env.BASE_URL}earth-topology.png`}
+            backgroundImageUrl={`${import.meta.env.BASE_URL}night-sky.png`}
             atmosphereColor="#7fb2ff"
             atmosphereAltitude={0.18}
             // points mode: one column per article

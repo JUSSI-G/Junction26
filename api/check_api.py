@@ -1,6 +1,6 @@
 r"""Time every API endpoint against the running server (second call of each = warm).
 
-    .venv\Scripts\python check_api.py            # http://127.0.0.1:8000
+    .venv\Scripts\python -m api.check_api            # http://127.0.0.1:8000
 """
 import json, sys, time, urllib.parse, urllib.request
 

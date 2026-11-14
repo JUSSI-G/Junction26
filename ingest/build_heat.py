@@ -1,14 +1,15 @@
 """Stage 4: build the plain summary table heat_year from SVT queries (see heat_sql.py), so the
 slider can play smoothly. Also builds the plain `revert` table (from article FOR SYSTEM_TIME ALL).
 
-    .venv\\Scripts\\python build_heat.py          # reverts for the articles in article_list
-    .venv\\Scripts\\python build_heat.py --all    # reverts for every article
+    .venv\\Scripts\\python -m ingest.build_heat          # reverts for the articles in article_list
+    .venv\\Scripts\\python -m ingest.build_heat --all    # reverts for every article
 
 Rebuilds both tables from scratch every run.
 """
 import argparse, time
-from common import connect
-from heat_sql import REVERTS, METRICS, ORIGIN, ARCS, YEAR_TOTALS, BIGGEST_EDITS, for_year
+import sys
+from common.db import connect
+from db.heat_sql import REVERTS, METRICS, ORIGIN, ARCS, YEAR_TOTALS, BIGGEST_EDITS, for_year
 
 YEARS = range(2004, 2027)
 
@@ -17,7 +18,8 @@ parser.add_argument("--all", action="store_true")
 args = parser.parse_args()
 scope = "" if args.all else " WHERE page_id IN (SELECT page_id FROM article_list)"
 
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 t_all = time.time()
 
@@ -73,7 +75,7 @@ print(f"arc_year: {cur.fetchone()[0]} rows, top {ARC_CAP} per year/status/origin
 t = time.time()
 cur.execute("DROP TABLE IF EXISTS year_caption")
 cur.execute("""CREATE TABLE year_caption (year SMALLINT PRIMARY KEY, added INT NOT NULL, removed INT NOT NULL,
-               page_id INT UNSIGNED, title VARCHAR(255), rev_id INT UNSIGNED, user VARCHAR(255),
+               page_id INT UNSIGNED, title VARCHAR(255), rev_id INT UNSIGNED, editor VARCHAR(255),
                comment TEXT, saved TIMESTAMP(6) NULL, n_added INT, n_removed INT) CHARACTER SET utf8mb4""")
 for year in YEARS:
     cur.execute(for_year(YEAR_TOTALS, year))
@@ -81,15 +83,15 @@ for year in YEARS:
     cur.execute(for_year(BIGGEST_EDITS, year))
     best = None
     for page_id, when, n_added, n_removed in cur.fetchall():
-        cur.execute("""SELECT title, rev_id, user, comment,
-                              (SELECT MIN(row_start) FROM article FOR SYSTEM_TIME ALL WHERE page_id = ?) = row_start
-                       FROM article FOR SYSTEM_TIME ALL WHERE page_id = ? AND row_start = ?""",
+        cur.execute("""SELECT title, rev_id, editor, comment,
+                              (SELECT MIN(row_start) FROM article FOR SYSTEM_TIME ALL WHERE page_id = %s) = row_start
+                       FROM article FOR SYSTEM_TIME ALL WHERE page_id = %s AND row_start = %s""",
                     (page_id, page_id, when))
         row = cur.fetchone()
         if row and not row[4]:                       # skip "the article was created"
             best = (page_id, row[0], row[1], row[2], row[3], when, int(n_added), int(n_removed))
             break
-    cur.execute("INSERT INTO year_caption VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    cur.execute("INSERT INTO year_caption VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (year, int(added), int(removed)) + (best or (None,) * 8))
 con.commit()
 print(f"year_caption: {len(YEARS)} rows ({time.time() - t:.1f} s)")

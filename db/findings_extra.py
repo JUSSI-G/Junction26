@@ -1,11 +1,12 @@
 r"""Extra queries for docs/findings.md (non-country places, war names without the medal, Halonen by month).
 
-    .venv\Scripts\python findings_extra.py > data\findings_extra.txt
+    .venv\Scripts\python -m db.findings_extra > data\findings_extra.txt
 """
 import sys, time
-from common import connect
+from common.db import connect
 
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 
 
@@ -45,10 +46,10 @@ GROUP BY y ORDER BY y""")
 # soldier biographies. Removing that phrase first shows who uses "vapaussota" for the war itself.
 # REPLACE is case-sensitive, so both capitalisations are removed; LIKE is case-insensitive.
 TERMS = """SELECT COUNT(*) AS articles,
-       SUM(text LIKE '%vapausso%') AS vapaussota_all,
-       SUM(REPLACE(REPLACE(text, 'Vapaussodan muistomital', ''), 'vapaussodan muistomital', '')
+       SUM(content LIKE '%vapausso%') AS vapaussota_all,
+       SUM(REPLACE(REPLACE(content, 'Vapaussodan muistomital', ''), 'vapaussodan muistomital', '')
            LIKE '%vapausso%') AS vapaussota_not_medal,
-       SUM(text LIKE '%sisällisso%') AS sisallissota
+       SUM(content LIKE '%sisällisso%') AS sisallissota
 FROM article FOR SYSTEM_TIME AS OF TIMESTAMP'{y}-01-01 00:00:00'"""
 print("\n=== 5. Names of the 1918 war in the articles as they stood each 1 January\n"
       + TERMS.format(y="<year>") + "\n")

@@ -1,13 +1,14 @@
 r"""Runs the queries behind docs/findings.md and prints each SQL with its result and time.
 
-    .venv\Scripts\python findings.py > data\findings_raw.txt
+    .venv\Scripts\python -m db.findings > data\findings_raw.txt
 
 Takes about 10 minutes at full scale (the term counts read every article's text 24 times).
 """
 import sys, time
-from common import connect
+from common.db import connect
 
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 
 
@@ -98,11 +99,11 @@ sys.stdout.flush()
 
 # 5. What the 1918 war is called, in the articles as they stood each 1 January
 TERMS = """SELECT COUNT(*) AS articles,
-       SUM(text LIKE '%vapausso%') AS vapaussota,
-       SUM(text LIKE '%sisällisso%') AS sisallissota,
-       SUM(text LIKE '%kansalaisso%') AS kansalaissota,
-       SUM(text LIKE '%punakapina%') AS punakapina,
-       SUM(text LIKE '%vapausso%' AND text LIKE '%sisällisso%') AS both_terms
+       SUM(content LIKE '%vapausso%') AS vapaussota,
+       SUM(content LIKE '%sisällisso%') AS sisallissota,
+       SUM(content LIKE '%kansalaisso%') AS kansalaissota,
+       SUM(content LIKE '%punakapina%') AS punakapina,
+       SUM(content LIKE '%vapausso%' AND content LIKE '%sisällisso%') AS both_terms
 FROM article FOR SYSTEM_TIME AS OF TIMESTAMP'{y}-01-01 00:00:00'"""
 print("\n=== 5. Articles whose text contains each name of the 1918 war, as of 1 January\n"
       + TERMS.format(y="<year>") + "\n")

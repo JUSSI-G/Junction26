@@ -4,7 +4,7 @@ A place's kinds are the English labels of ALL its P31 (instance of) values; it i
 label matches a whitelist group. Groups are tried in order, so a place that is both a country
 and something else is a country.
 
-    .venv\\Scripts\\python kinds.py     # show included / excluded kinds for the cached places
+    .venv\\Scripts\\python -m ingest.kinds     # show included / excluded kinds for the cached places
 """
 import re
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 
 import pymysql
@@ -14,7 +15,10 @@ import pymysql
 from common.db import ROOT, connect, settings
 
 TABLES = ["sentence_score", "sentence_event_time", "article_sentence", "article", "article_geo",
-          "article_stats", "load_log"]
+          "article_stats", "load_log",
+          "article_list", "place", "page_place", "place_link", "heat_year",
+          "revert", "page_origin", "arc_year", "year_caption"]
+RESET_LIMIT = 100_000   # --reset refuses to drop an `article` with more versions than this
 
 
 def apply(database: str | None = None, reset: bool = False) -> None:
@@ -27,6 +31,15 @@ def apply(database: str | None = None, reset: bool = False) -> None:
     conn = connect(name, autocommit=True)
     with conn.cursor() as cur:
         if reset:
+            # A real load is hours of work: only test and demo databases may be reset.
+            try:
+                cur.execute("SELECT COUNT(*) AS n FROM article FOR SYSTEM_TIME ALL")
+                n = cur.fetchone()["n"]
+            except pymysql.err.ProgrammingError:
+                n = 0
+            if n > RESET_LIMIT and os.environ.get("ALLOW_RESET") != "1":
+                raise SystemExit(f"Refusing to reset `{name}`: article holds {n:,} versions. "
+                                 "Set ALLOW_RESET=1 if you really mean it.")
             for t in TABLES:
                 cur.execute(f"DROP TABLE IF EXISTS `{t}`")
         sql = re.sub(r"--[^\n]*", "", (ROOT / "db" / "schema.sql").read_text(encoding="utf-8"))

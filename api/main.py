@@ -1,6 +1,14 @@
-"""Contested History API (owner: P1). Contract: plan §6.2, models in api/models.py.
+"""The combined API: one FastAPI app, two sets of routes.
+
+  * sentence routes (this file): Contested History — as-of, diff, contested, edit wars, drift,
+    bitemporal "about", map. Contract: models in api/models.py.
+  * place routes (api/places.py): Rewritten — heat, arcs, captions, place and article panels.
 
     uvicorn api.main:app --reload            # http://localhost:8000/docs
+
+Frontends, served from the same origin while the two are being merged:
+    /            the place globe            (web/globe/dist)
+    /contested/  the sentence views (React) (web/dist)
 """
 from __future__ import annotations
 
@@ -10,21 +18,22 @@ import time
 from pathlib import Path
 from typing import Literal
 
-import pymysql
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api import history as H
 from api import models as M
-from common.db import ROOT, Pool
+from api.db import DB_ERRORS, db_error, pool
+from api.places import router as places_router
+from common.db import ROOT
 
-app = FastAPI(title="Contested History", version="1.0",
-              description="Sentence-level history of Finnish Wikipedia, from MariaDB system-versioned tables.")
+app = FastAPI(title="Rewritten · Contested History", version="2.0",
+              description="How Finnish Wikipedia told its history: places and links over time, and "
+                          "sentence-level history, from MariaDB system-versioned tables.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+app.include_router(places_router)
 
-pool = Pool(size=int(os.environ.get("DB_POOL", 8)))
 Bucket = Literal["month", "quarter", "year"]
 
 
@@ -36,10 +45,9 @@ def run(fn, *args):
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(422, str(e))
-    except pymysql.err.OperationalError as e:
-        # Timeout or lost connection: say so instead of hanging (e.g. MariaDB stalled on a full disk).
-        raise HTTPException(503, f"Database not responding ({e.args[-1] if e.args else e}). "
-                                 "Check that MariaDB is running and its disk is not full.")
+    except DB_ERRORS as e:
+        # Timeout, lost connection, or a table that is not loaded yet: say so (api/db.py).
+        raise db_error(e)
 
 
 @app.get("/api/health")
@@ -140,15 +148,13 @@ def stats(refresh: bool = False):
     return _stats_cache["data"]
 
 
-# The built frontend (web/dist) is served from the same origin for single-box deploys.
-DIST = ROOT / "web" / "dist"
+# The built frontends are served from the same origin for single-box deploys.
 # Windows' registry often maps .js to text/plain, which browsers refuse for module scripts.
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
-if DIST.exists():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
-
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        f = DIST / path
-        return FileResponse(f if path and f.is_file() else DIST / "index.html")
+CONTESTED = ROOT / "web" / "dist"            # React: sentence views (vite base /contested/)
+GLOBE = ROOT / "web" / "globe" / "dist"      # the place globe
+if CONTESTED.exists():
+    app.mount("/contested", StaticFiles(directory=CONTESTED, html=True), name="contested")
+if GLOBE.exists():
+    app.mount("/", StaticFiles(directory=GLOBE, html=True), name="globe")

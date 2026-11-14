@@ -1,8 +1,8 @@
 """Load article versions from dataset M (data/m/*.parquet) into the system-versioned `article`
 table, with Wikipedia's real edit times.
 
-    .venv\\Scripts\\python load_parquet.py                     # the 50 dev articles
-    .venv\\Scripts\\python load_parquet.py --list all          # every article in the parquet files
+    .venv\\Scripts\\python -m ingest.load_parquet                     # the 50 dev articles
+    .venv\\Scripts\\python -m ingest.load_parquet --list all          # every article in the parquet files
 
 Safe to stop and run again: articles already in the table are skipped.
 
@@ -19,14 +19,14 @@ import argparse, csv, glob, os, sys, time
 from datetime import timedelta
 import pyarrow as pa
 import pyarrow.parquet as pq
-from common import connect, ROOT
+from common.db import ROOT, connect
 
 DEFAULT_LIST = os.path.join(ROOT, "reference", "mariadb-system-versioning-wikipedia", "data", "articles.tsv")
 BATCH_BYTES = 8_000_000   # rows sent per executemany; MariaDB's packet limit is 16 MB
 COLS = ["page_id", "title", "rev_id", "parent_id", "timestamp", "user", "anonymous",
         "comment", "minor", "sha1", "bytes", "text"]
-INSERT = """INSERT INTO article (page_id, title, rev_id, parent_id, user, anonymous, comment,
-            minor, sha1, len, text, row_start{}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?{})"""
+INSERT = """INSERT INTO article (page_id, title, rev_id, parent_id, editor, anonymous, comment,
+            minor, sha1, len, content, row_start{}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{})"""
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--list", default=DEFAULT_LIST,
@@ -34,7 +34,8 @@ parser.add_argument("--list", default=DEFAULT_LIST,
 parser.add_argument("--data", default=os.path.join(ROOT, "data", "m"))
 args = parser.parse_args()
 
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 cur.execute("SET time_zone = '+00:00'")                  # Wikipedia's times are UTC
 cur.execute("SET system_versioning_insert_history = 1")
@@ -44,7 +45,7 @@ if args.list != "all":
     with open(args.list, encoding="utf-8") as f:
         rows = list(csv.DictReader(f, delimiter="\t"))
     wanted = {int(r["page_id"]) for r in rows}
-    cur.executemany("INSERT IGNORE INTO article_list (page_id, title, why) VALUES (?, ?, ?)",
+    cur.executemany("INSERT IGNORE INTO article_list (page_id, title, why) VALUES (%s, %s, %s)",
                     [(int(r["page_id"]), r["title"], r.get("why")) for r in rows])
     con.commit()
 cur.execute("SELECT DISTINCT page_id FROM article FOR SYSTEM_TIME ALL")
@@ -65,7 +66,7 @@ def save(versions):
     batch, size = [], 0
     for row in history + [None]:
         if batch and (row is None or size + len(row[10]) * 2 > BATCH_BYTES):
-            cur.executemany(INSERT.format(", row_end", ",?"), batch)
+            cur.executemany(INSERT.format(", row_end", ",%s"), batch)
             batch, size = [], 0
         if row is not None:
             batch.append(row)

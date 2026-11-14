@@ -1,18 +1,20 @@
 """Stage 1 check: the article table answers FOR SYSTEM_TIME AS OF with real Wikipedia times.
 
-    .venv\\Scripts\\python check_stage1.py
+    .venv\\Scripts\\python -m ingest.check_stage1
 """
 import time
-from common import connect
+import sys
+from common.db import connect
 
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 
 cur.execute("SELECT COUNT(DISTINCT page_id), COUNT(*), MIN(row_start), MAX(row_start) "
             "FROM article FOR SYSTEM_TIME ALL")
 print("article, all versions: %s articles, %s versions, %s .. %s" % cur.fetchone())
 
-SQL = """SELECT rev_id, title, row_start, row_end, len, LEFT(text, 120)
+SQL = """SELECT rev_id, title, row_start, row_end, len, LEFT(content, 120)
 FROM article FOR SYSTEM_TIME AS OF TIMESTAMP'2010-01-01 00:00:00'
 WHERE page_id = 1150"""
 t = time.perf_counter()

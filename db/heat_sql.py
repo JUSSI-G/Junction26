@@ -1,5 +1,5 @@
-"""The SVT queries that build heat_year, one per metric. Shared by build_heat.py (runs them) and
-api.py (shows them in the SQL drawer). {y0} = 'YYYY-01-01 00:00:00' of the year, {y1} = next year.
+"""The SVT queries that build heat_year, one per metric. Shared by ingest/build_heat.py (runs them)
+and api/places.py (shows them in the SQL drawer). {y0} = 'YYYY-01-01 00:00:00' of the year, {y1} = next year.
 
 knowledge   = links pointing to the place AS OF 1 Jan, plus the length (KB) of articles located there
 activity    = versions saved during the year, of articles located at or linking the place that year

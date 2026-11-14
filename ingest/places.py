@@ -1,8 +1,8 @@
 """Stage 2: find every wikilink target in every stored version, look the targets up on
 Wikidata, and fill `place` (targets with coordinates) and `page_place` (each article's own location).
 
-    .venv\\Scripts\\python places.py          # the articles in article_list (the 50 dev ones)
-    .venv\\Scripts\\python places.py --all    # every article in the table (stage 6)
+    .venv\\Scripts\\python -m ingest.places          # the articles in article_list (the 50 dev ones)
+    .venv\\Scripts\\python -m ingest.places --all    # every article in the table (stage 6)
 
 Lookups are cached in data/places.tsv, so each title goes to the APIs only once; reruns are cheap.
 
@@ -26,10 +26,12 @@ the articles' own locations (category 'own_location' when not whitelisted).
 """
 import csv, gzip, io, json, os, time, urllib.parse, urllib.request
 from collections import defaultdict
-from common import connect, ROOT
-from links import extract
-from kinds import classify, is_country
-from labels_en import load_labels
+import sys
+import pymysql.cursors
+from common.db import ROOT, connect
+from ingest.links import extract
+from ingest.kinds import classify, is_country
+from ingest.labels_en import load_labels
 
 CACHE = os.path.join(ROOT, "data", "places.tsv")
 FIELDS = ["title", "resolved", "qid", "lat", "lon", "kind", "kinds", "p276"]
@@ -242,7 +244,8 @@ args = parser.parse_args()
 SCOPE = "" if args.all else " WHERE page_id IN (SELECT page_id FROM article_list)"
 
 t_start = time.time()
-con = connect()
+sys.stdout.reconfigure(encoding="utf-8")
+con = connect(dict_rows=False)
 cur = con.cursor()
 cur.execute("SELECT page_id, title FROM article" + SCOPE)              # current titles
 article_title = dict(cur.fetchall())
@@ -250,8 +253,8 @@ article_title = dict(cur.fetchall())
 ever = defaultdict(set)     # target -> pages that linked it in any version
 now = defaultdict(set)      # target -> pages that link it in the current version
 versions = 0
-read = con.cursor(buffered=False)
-read.execute("SELECT page_id, row_end > NOW(), text FROM article FOR SYSTEM_TIME ALL" + SCOPE)
+read = con.cursor(pymysql.cursors.SSCursor)      # streamed: 12 GB of text does not fit in memory
+read.execute("SELECT page_id, row_end > NOW(), content FROM article FOR SYSTEM_TIME ALL" + SCOPE)
 for page_id, is_current, text in read:
     versions += 1
     for t in extract(text):
@@ -332,12 +335,12 @@ for t, r in coords.items():
 cur.execute("DELETE FROM place")
 en = load_labels()                                      # data/place_labels.tsv, from labels_en.py
 cur.executemany("INSERT INTO place (title, en_label, qid, lat, lon, kind, category, is_country) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 [(t, en.get(r["qid"], "")[:255] or None, r["qid"], float(r["lat"]), float(r["lon"]),
                   (kind or "")[:50] or None, category, is_country(category))
                  for t, (r, category, kind) in places.items()])
 cur.execute("DELETE FROM page_place")
-cur.executemany("INSERT INTO page_place (page_id, place_title) VALUES (?, ?)", list(own.items()))
+cur.executemany("INSERT INTO page_place (page_id, place_title) VALUES (%s, %s)", list(own.items()))
 con.commit()
 
 # ---------------------------------------------------------------- 5. report

@@ -10,6 +10,8 @@
     python dev.py mocks                   # regenerate web/mocks from the API
     python dev.py test
     python dev.py demo                    # db + demo data + scores + build web + API on :8000
+    python dev.py places                  # place pipeline on everything in `article` (cached lookups)
+    python dev.py places-dev              # the same on the 50 articles of article_list
 """
 from __future__ import annotations
 
@@ -58,6 +60,22 @@ def web_build() -> None:
     sh(NPM, "run", "build", cwd=ROOT / "web")
 
 
+def places(scope: str = "--all") -> None:
+    """The place half: places -> place links -> heat, arcs, captions (all resumable / rebuildable)."""
+    args = [scope] if scope else []
+    sh(PY, "-m", "ingest.places", *args)     # only titles missing from data/places.tsv go to Wikidata
+    sh(PY, "-m", "ingest.labels_en")
+    sh(PY, "-m", "ingest.place_links", *args)
+    sh(PY, "-m", "ingest.build_heat", *args)
+
+
+def web_build_all() -> None:
+    web_build()
+    if not (ROOT / "web" / "globe" / "node_modules").exists():
+        sh(NPM, "install", "--no-audit", "--no-fund", cwd=ROOT / "web" / "globe")
+    sh(NPM, "run", "build", cwd=ROOT / "web" / "globe")
+
+
 TASKS = {
     "db": db,
     "ingest": ingest,
@@ -65,7 +83,9 @@ TASKS = {
     "api": lambda: sh(PY, "-m", "uvicorn", "api.main:app", "--reload", "--port", "8000"),
     "web": lambda: sh(NPM, "run", "dev", cwd=ROOT / "web"),
     "web-mock": lambda: sh(NPM, "run", "dev:mock", cwd=ROOT / "web"),
-    "web-build": web_build,
+    "web-build": web_build_all,
+    "places": places,
+    "places-dev": lambda: places(""),
     "mocks": lambda: sh(PY, "-m", "api.dump_mocks"),
     "test": lambda: sh(PY, "-m", "pytest", "-q"),
     "demo": lambda: (db(), ingest("demo"), sh(PY, "-m", "scoring.score", "--backend", "heuristic"),
