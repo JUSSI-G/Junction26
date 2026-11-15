@@ -212,11 +212,10 @@ docs/       contracts between the parts, decisions, Verda process log, screensho
 
 Built in 48 hours at Junction 2026 by:
 
-- **Jussi Grönroos**: data loading, MariaDB schema, vector search and sentence matching, worklist
-  scoring, the API, and the worklist, search and map app
-- **Kristian Lalev**: sentence-level system versioning and the edit-war views
-- **Jesse Mahkonen**: the Verda GPU pipeline (sentence embeddings, Gemma judging and its evaluation)
-  and the first comparison views
+- **Jussi Grönroos**
+- **Kristian Lalev**
+- **Jesse Mahkonen**
+- **Iikka Harjamäki** 
 
 ## Licence
 
