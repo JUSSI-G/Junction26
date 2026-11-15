@@ -1,11 +1,10 @@
--- Rewritten + Contested History — the one schema of the combined app. Applied by
+-- AikaKone — the one schema of the app. Applied by
 -- `python -m common.schema`. Change only by team agreement, and log it in docs/decisions.md.
 --
 -- Part 1 (sentences): article, article_sentence, sentence_score, sentence_event_time, article_geo,
 --                     article_stats, load_log.
--- Part 2 (places):    article_list, place, page_place, place_link, heat_year.
--- Derived tables that are rebuilt from scratch by ingest/build_heat.py (revert, page_origin,
--- arc_year, year_caption) are created there, next to the queries that fill them.
+-- Part 2 (places):    article_list, place, page_place, place_link (where articles sit on the map).
+-- page_origin is created and filled by ingest/build_origin.py, next to its query.
 --
 -- Core idea: we version *sentences*, not just articles. Every distinct sentence of an article is
 -- a row in article_sentence; when a revision removes it, MariaDB moves it to history; when a
@@ -206,16 +205,6 @@ CREATE TABLE IF NOT EXISTS place_link (
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
   WITH SYSTEM VERSIONING;
 
--- 5. Per-year summary for smooth slider playback, built FROM the SVT queries.
-CREATE TABLE IF NOT EXISTS heat_year (
-  year        SMALLINT NOT NULL,
-  place_title VARCHAR(255) NOT NULL,
-  knowledge   INT,
-  activity    INT,
-  controversy INT,
-  rewritten   INT,
-  PRIMARY KEY (year, place_title)
-) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 
 -- ============================================================ Part 3: languages (the editor tool)

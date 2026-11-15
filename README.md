@@ -28,8 +28,7 @@ Needs MariaDB 11.8+ (vector support), Python 3.11+, Node 18+. Settings in `.env`
 
 ```bash
 pip install -r requirements.txt
-npm --prefix web install && npm --prefix web run build
-python -m uvicorn api.main:app --port 8000      # http://localhost:8000
+python start.py          # checks MariaDB, builds the web app if needed, serves http://127.0.0.1:8000
 ```
 
 ## Data pipeline
@@ -43,6 +42,7 @@ python -m uvicorn api.main:app --port 8000      # http://localhost:8000
 | Sentence vectors (bge-m3 on a Verda GPU, 358,553 sentences) | `python -m ingest.load_verda_sentences` |
 | Sentence matching (mutual best matches, threshold 0.418) | `python -m db.lang_match --workers 8` |
 | Gemma judgements (27B on Verda, 12B second opinion) | `python -m ingest.load_judgements` |
+| Places on the map (Wikidata places, the place links' history, coordinates) | `python -m ingest.places --all`, `python -m ingest.place_links --all`, `python -m ingest.geo`, `python -m ingest.build_origin` |
 | Map positions | `python -m db.build_topic_place` |
 | Worklist scores | `python -m db.build_divergence` |
 | Map coastlines (Natural Earth 1:10m) | `python scripts/make_world_map.py <countries.geojson> <lakes.geojson>` |

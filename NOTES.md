@@ -1435,3 +1435,22 @@ Compared with a snapshot taken before the reload:
   - map for the search, hover, blob list, picked article with its 10 similar, all articles
 - **Timings** in the same run: worklist 344 ms, search 298 ms, chip 206 ms, article 377 ms, edit-war
   tabs 109–224 ms, map 225–420 ms, map click 8–66 ms.
+
+### Cleanup 2: one start command, old globe tables dropped (2026-11-15)
+- **`python start.py`** replaces `dev.py`, `Makefile`, `Dockerfile`, `.dockerignore`,
+  `docker-compose.yml` and the root `package.json`, which described old workflows. It does three
+  things: checks the `.env` database settings and that MariaDB answers (with the worklist size); builds
+  `web/dist` when it is missing or older than `web/src`; runs the API, which serves the app (`/` →
+  `/contested/`). Options: `--port`, `--host`, `--rebuild`. Tested on :8001.
+- **Dropped from MariaDB:** `heat_year`, `arc_year`, `year_caption`. Only the deleted globe read them.
+- **Kept `place_link`:** it is the system-versioned history of place links that the map's *inferred*
+  locations come from (1,821 of the 2,688 placed topics).
+- **Builder:** `ingest/build_heat.py` and `db/heat_sql.py` are replaced by **`ingest/build_origin.py`**,
+  which rebuilds only `page_origin` for one year (default 2026, the map's). Rebuilt and checked:
+  17,362 articles; `topic_place` again 2,688 (860 page_place, 7 article_geo, 1,821 inferred).
+- **Schema and hints:** `db/schema.sql`, `common/schema.py` and the 503 "load it with…" hints in
+  `api/db.py` are updated.
+- **Not dropped:** `revert` (45,048 rows) is also unused now; it was not on the agreed list.
+- `docs/process-log.md` and `docs/decisions.md` still mention Docker and `dev.py`: they record what was
+  done then.
+- Tests: 43 passed, 1 skipped.
