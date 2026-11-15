@@ -98,33 +98,43 @@ for (const mode of ['3d', '2d']) {
   await time(`${tag} map for "${Q}"`, async () => {
     await page.goto(`${BASE}/contested/#/map?q=${encodeURIComponent(Q)}`)
     await page.reload()
-    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/[1-9][\d,]* articles on the map/))
+    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/[1-9][\d,]* articles at/))
     await page.waitForSelector('.mapcanvas canvas')
   })
   await page.waitForTimeout(mode === '3d' ? 2500 : 900)      // camera flight / fit animation
   await shot(page, `8-${mode}-map-search`)
 
-  // where the map drew the civil war's dot, then a real hover and click there
+  // where the map drew the mark holding the civil war (alone, or in a blob), then a real hover and click
   const where = () => page.evaluate((m) => {
-    if (m === '2d') { const d = window.__map.dots.find((x) => x.id === 'Q211855'); return d && { x: d.sx, y: d.sy } }
-    const g = window.__globe, d = g.pointsData().find((x) => x.id === 'Q211855')
-    return d && g.getScreenCoords(d.jlat, d.jlon, 0.0068)
+    const has = (k) => k.items.some((a) => a.id === 'Q211855')
+    if (m === '2d') { const k = window.__map.marks.find(has); return k && { x: k.sx, y: k.sy, n: k.n } }
+    const g = window.__globe, k = g.pointsData().find(has)
+    return k && { ...g.getScreenCoords(k.lat, k.lon, 0.0068), n: k.n }
   }, mode)
   const box = await page.$eval('.mapcanvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top } })
   let found = null
-  await time(`${tag}: hover the civil war dot`, async () => {
-    const p = await where()
+  const p = await where()
+  console.log(`  the civil war is ${p?.n > 1 ? `in a blob of ${p.n}` : 'a dot of its own'}`)
+  await time(`${tag}: hover its mark`, async () => {
     if (!p) return
     for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [2, 2]]) {
       await page.mouse.move(box.x + p.x + dx, box.y + p.y + dy)
       const tip = await page.waitForSelector('.maptip b', { timeout: 1500 }).then((e) => e.innerText()).catch(() => null)
-      if (tip === 'Suomen sisällissota') { found = { x: box.x + p.x + dx, y: box.y + p.y + dy }; break }
+      if (tip && (tip === 'Suomen sisällissota' || (p.n > 1 && tip.includes(`${p.n} articles`)))) { found = { x: box.x + p.x + dx, y: box.y + p.y + dy }; break }
     }
   })
   await shot(page, `8b-${mode}-map-hover`)
-  if (!found) { fail(`${tag}: civil war dot not found`); continue }
-  await time(`${tag}: click dot -> 10 similar articles + lines`, async () => {
-    await page.mouse.click(found.x, found.y)
+  if (!found) { fail(`${tag}: the civil war's mark not found`); continue }
+  if (p.n > 1) {
+    await time(`${tag}: click the blob -> list of its articles`, async () => {
+      await page.mouse.click(found.x, found.y)
+      await page.waitForSelector('.mapcard .bloblist li')
+    })
+    await shot(page, `8c-${mode}-map-blob`)
+  }
+  await time(`${tag}: pick the civil war -> 10 similar articles + lines`, async () => {
+    if (p.n > 1) await page.click('.bloblist button:has-text("Suomen sisällissota")')
+    else await page.mouse.click(found.x, found.y)
     await page.waitForSelector('.mapcard .simlist li')
   })
   await page.waitForTimeout(mode === '3d' ? 1500 : 600)
@@ -138,7 +148,7 @@ for (const mode of ['3d', '2d']) {
   await time(`${tag}: map, all articles`, async () => {
     await page.goto(`${BASE}/contested/#/map`)
     // "2,682" or "2 682": the browser's locale decides the thousands separator
-    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/\d[\d,\s]{3,} articles on the map/))
+    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/\d[\d,\s]{3,} articles at/))
   })
   await page.waitForTimeout(mode === '3d' ? 2500 : 900)
   await shot(page, `10-${mode}-map-all`)

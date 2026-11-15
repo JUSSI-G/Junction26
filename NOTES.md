@@ -1354,3 +1354,20 @@ Compared with a snapshot taken before the reload:
   - **2D:** click 9–14 ms, frame 0.2–0.4 ms.
   - **3D:** timings measured with software WebGL (SwiftShader, ~3 frames/s in headless Edge), so they say
     nothing about a laptop GPU; check the 3D globe on the demo machine.
+
+### Map: blobs for crowded places, the same lines in 3D and 2D (2026-11-15)
+- **Blobs:** all the articles at one place are now one **blob** on both maps. This replaces the
+  sunflower spreading.
+  - **Size:** grows with the log of the count.
+  - **Colour:** the blob's most urgent article.
+  - **Count:** written inside big blobs (3D: 20+).
+  - **Hover:** shows the place, the count and the most urgent article.
+  - **Click:** lists the articles (most urgent, or closest to the search, first). A name selects that
+    article (lines, card), and → opens its article page.
+  - **Scale:** 2,682 placed articles sit at 1,244 places. The civil war shares "Suomi" (Finland's centre
+    point) with the Winter War, the Continuation War and Isoviha, a blob of 4.
+- **Lines:** the 3D lines now follow the 2D map: solid (no flowing dashes), low over the surface,
+  thicker and brighter = more similar, drawn in once. They are light blue on the dark globe and dark
+  blue on the light 2D map. `linesFor()` in `map/shared.js` builds them for both.
+- **Demo flow:** hover the blob → click → list → pick the civil war → 10 similar + lines → card →
+  article. Passes in 3D and 2D; in 2D the blob click takes 6 ms and the pick 56 ms.

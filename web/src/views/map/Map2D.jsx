@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react'
-import { useJson, HOME, fitSet, color, css, ease, lineStrength } from './shared.js'
+import { useJson, fitSet, color, css, ease, blobScale } from './shared.js'
 
-// The 2D world map, the light option for lower-end devices: one canvas, Equal Earth projection (the
-// whole world without the polar blow-up; Finland stays recognisable). Coastlines, borders and lakes
-// (Natural Earth 1:10m, web/public/world.json: detailed in Northern Europe, simplified elsewhere) are
-// built once as Path2D and cached on an offscreen layer per view, so a hover redraws only dots and lines.
+// The 2D world map, the light option for lower-end devices: one canvas, Equal Earth projection (the whole
+// world without the polar blow-up; Finland stays recognisable). Coastlines, borders and lakes (Natural
+// Earth 1:10m, web/public/world.json: detailed in Northern Europe, simplified elsewhere) are built once as
+// Path2D and cached on an offscreen layer per view, so a hover redraws only marks and lines.
 const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796, M = Math.sqrt(3) / 2
 export function project(lon, lat) {
   const l = lon * Math.PI / 180, t = Math.asin(M * Math.sin(lat * Math.PI / 180))
@@ -19,6 +19,7 @@ const CITIES = [['Helsinki', 24.94, 60.17], ['Turku', 22.27, 60.45], ['Tampere',
   ['Stockholm', 18.07, 59.33], ['Tallinn', 24.75, 59.44], ['Pietari', 30.31, 59.94], ['Oslo', 10.75, 59.91],
   ['Riga', 24.11, 56.95], ['Kööpenhamina', 12.57, 55.68], ['Moskova', 37.62, 55.75], ['Petroskoi', 34.35, 61.79],
   ['Berliini', 13.4, 52.52], ['Lontoo', -0.13, 51.51], ['Pariisi', 2.35, 48.86], ['Rooma', 12.5, 41.9]]
+export const LINE_RGB = '47, 93, 138'
 
 const box = (pts) => {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1])
@@ -32,32 +33,29 @@ function fit([x0, y0, x1, y1], [w, h], pad = 60) {
   return { s, tx: w / 2 - ((x0 + x1) / 2) * s, ty: h / 2 - ((y0 + y1) / 2) * s }
 }
 
-export default function Map2D({ dots, pin, hoverId, neigh, semantic, onHover, onPick }) {
+export default function Map2D({ marks, lines, focus, selKey, hoverKey, labels, semantic, onHover, onPick }) {
   const wrap = useRef(null), canvas = useRef(null)
   const geo = useJson('world.json')
-  const st = useRef({ view: null, target: null, base: null, baseKey: '', dots: [], dirty: true, size: [0, 0], dpr: 1 })
+  const st = useRef({ view: null, target: null, base: null, baseKey: '', marks: [], dirty: true, size: [0, 0], dpr: 1 })
   const s = st.current
-  s.pin = pin; s.hoverId = hoverId; s.lines = neigh; s.semantic = semantic; s.geo = geo
-  s.dirty = true
+  Object.assign(s, { lines, focus, selKey, hoverKey, labels, semantic, geo, dirty: true })
 
-  useEffect(() => { window.__map = st.current }, [])     // the Playwright demo script reads dot positions
+  useEffect(() => { window.__map = st.current }, [])     // the Playwright demo script reads mark positions
 
-  // fit to the filter's dots (always with Finland in view) when they change
+  // fit to the filter's marks (always with Finland in view) when they change
   useEffect(() => {
-    s.dots = dots
-    for (const d of dots) { [d.wx, d.wy] = project(d.lon, d.lat) }
+    s.marks = marks
+    for (const m of marks) { [m.wx, m.wy] = project(m.lon, m.lat) }
     if (!s.size[0]) return
-    const use = fitSet(dots)
-    const pts = use.map((d) => [d.wx, d.wy])
+    const pts = fitSet(marks).map((m) => [m.wx, m.wy])
     const fin = lonlatBox(FINLAND)
-    const b = box(pts.concat([[fin[0], fin[1]], [fin[2], fin[3]]]))
-    s.target = fit(b, s.size)
+    s.target = fit(box(pts.concat([[fin[0], fin[1]], [fin[2], fin[3]]])), s.size)
     const widest = fit(lonlatBox(WORLD), s.size, 10)
     if (s.target.s < widest.s) s.target = widest
     if (!s.view) s.view = { ...s.target }
     s.anim = { from: { ...s.view }, t0: performance.now() }
     s.dirty = true
-  }, [dots])
+  }, [marks])
 
   useEffect(() => {
     const c = canvas.current
@@ -84,15 +82,16 @@ export default function Map2D({ dots, pin, hoverId, neigh, semantic, onHover, on
     return () => { cancelAnimationFrame(raf); ro.disconnect() }
   }, [])
 
-  // input: hover / click pick the nearest dot; drag pans, the wheel zooms around the cursor
+  // input: hover / click pick the mark under the cursor (the smallest one, it is drawn on top); drag
+  // pans; the wheel zooms around the cursor
   useEffect(() => {
     const c = canvas.current
     const at = (e) => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] }
     const pick = (x, y) => {
-      let best = null, bd = 14 * 14
-      for (const d of s.dots) {
-        const dx = d.sx - x, dy = d.sy - y, dd = dx * dx + dy * dy
-        if (dd < bd) { bd = dd; best = d }
+      let best = null
+      for (const m of s.marks) {
+        const dx = m.sx - x, dy = m.sy - y
+        if (dx * dx + dy * dy <= (m.rad + 4) ** 2 && (!best || m.rad < best.rad)) best = m
       }
       return best
     }
@@ -104,9 +103,9 @@ export default function Map2D({ dots, pin, hoverId, neigh, semantic, onHover, on
         s.anim = null; s.baseKey = ''; s.dirty = true
         return
       }
-      const d = pick(x, y)
-      c.style.cursor = d ? 'pointer' : 'grab'
-      onHover(d, x, y)
+      const m = pick(x, y)
+      c.style.cursor = m ? 'pointer' : 'grab'
+      onHover(m, x, y)
     }
     const down = (e) => { s.drag = [...at(e), false]; c.style.cursor = 'grabbing' }
     const up = (e) => {
@@ -143,8 +142,6 @@ export default function Map2D({ dots, pin, hoverId, neigh, semantic, onHover, on
   )
 }
 
-export const frameMs2D = () => window.__map?.frameMs
-
 function step(s, now) {
   let busy = false
   if (s.anim && s.target) {
@@ -156,10 +153,7 @@ function step(s, now) {
     if (u >= 1) s.anim = null
     busy = true
   }
-  for (const id of [s.hoverId, s.pin?.id]) {
-    const l = id && s.lines?.[id]
-    if (l?.t0 && now - l.t0 < 450) busy = true
-  }
+  if ((s.lines || []).some((l) => now - l.t0 < 450)) busy = true
   return busy
 }
 
@@ -171,12 +165,11 @@ function buildPaths(geo) {
   const land = new Path2D(), fin = new Path2D(), lakes = new Path2D()
   for (const c of geo.land) for (const p of c.polys) { ring(land, p); if (c.iso === 'FI') ring(fin, p) }
   for (const p of geo.lakes) ring(lakes, p)
-  const [gx0, gy0] = project(-180, 0), [gx1] = project(180, 0)
-  const graticule = new Path2D()               // the world's outline (Equal Earth's rounded edge)
-  for (let la = -90; la <= 90; la += 2) { const [x, y] = project(-180, la); la === -90 ? graticule.moveTo(x, y) : graticule.lineTo(x, y) }
-  for (let la = 90; la >= -90; la -= 2) { const [x, y] = project(180, la); graticule.lineTo(x, y) }
-  graticule.closePath()
-  return { land, fin, lakes, graticule, cities: CITIES.map(([n, lo, la]) => [n, ...project(lo, la)]), gx0, gy0, gx1 }
+  const outline = new Path2D()                 // the world's edge (Equal Earth's rounded sides)
+  for (let la = -90; la <= 90; la += 2) { const [x, y] = project(-180, la); la === -90 ? outline.moveTo(x, y) : outline.lineTo(x, y) }
+  for (let la = 90; la >= -90; la -= 2) { const [x, y] = project(180, la); outline.lineTo(x, y) }
+  outline.closePath()
+  return { land, fin, lakes, outline, cities: CITIES.map(([n, lo, la]) => [n, ...project(lo, la)]) }
 }
 
 function drawBase(s) {
@@ -191,7 +184,7 @@ function drawBase(s) {
   g.fillStyle = css('--map-space'); g.fillRect(0, 0, w, h)
   g.setTransform(dpr * v.s, 0, 0, dpr * v.s, dpr * v.tx, dpr * v.ty)
   const px = 1 / v.s
-  g.fillStyle = css('--map-sea'); g.fill(s.paths.graticule)
+  g.fillStyle = css('--map-sea'); g.fill(s.paths.outline)
   g.fillStyle = css('--map-land'); g.fill(s.paths.land, 'evenodd')
   g.fillStyle = css('--map-finland'); g.fill(s.paths.fin, 'evenodd')
   g.fillStyle = css('--map-sea'); g.fill(s.paths.lakes)
@@ -213,6 +206,11 @@ function drawBase(s) {
   return b
 }
 
+export function markRadius(m, r0, semantic) {
+  const one = semantic && m.sim != null ? 2.5 + 9 * m.sim : r0
+  return m.n > 1 ? Math.max(one, r0 * blobScale(m.n)) : one
+}
+
 function draw(s, c) {
   if (!s.geo || !s.view) return
   const ctx = c.getContext('2d')
@@ -221,51 +219,48 @@ function draw(s, c) {
   ctx.drawImage(drawBase(s), 0, 0)
   ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0)
   const zoom = Math.log2(v.s / 400)
-  const r0 = Math.max(2, Math.min(6, 2.6 + 0.75 * (zoom - 2)))
-  // stacked dots: a sunflower, spaced like on the ground (STACK_KM) but never closer than 1.5 px
-  const step = Math.max(1.5, 0.00055 * v.s)
-  for (const d of s.dots) {
-    const a = d.k * 2.39996, rr = d.k ? step * Math.sqrt(d.k) : 0
-    d.sx = d.wx * v.s + v.tx + rr * Math.cos(a); d.sy = d.wy * v.s + v.ty + rr * Math.sin(a)
-    d.rad = s.semantic && d.sim != null ? 2.5 + 9 * d.sim : r0
+  const r0 = Math.max(2.2, Math.min(6, 2.8 + 0.75 * (zoom - 2)))
+  for (const m of s.marks) {
+    m.sx = m.wx * v.s + v.tx; m.sy = m.wy * v.s + v.ty
+    m.rad = markRadius(m, r0, s.semantic)
   }
-  const byId = new Map(s.dots.map((d) => [d.id, d]))
-  const hover = s.hoverId && byId.get(s.hoverId)
-  const active = [s.pin && byId.get(s.pin.id), hover].filter(Boolean)
-  const focus = new Set()
-  for (const src of active) {
-    const l = s.lines?.[src.id]
-    if (!l?.data) continue
-    const p = Math.min(1, (performance.now() - l.t0) / 450)
-    for (const [i, n] of l.data.entries()) {
-      const d = byId.get(n.wikidata_id)
-      let tx, ty
-      if (d) { tx = d.sx; ty = d.sy; focus.add(d.id) } else { const [wx, wy] = project(n.lon, n.lat); tx = wx * v.s + v.tx; ty = wy * v.s + v.ty }
-      const t = lineStrength(n.similarity)
-      const pe = ease(Math.max(0, Math.min(1, p * 1.4 - i * 0.04)))
-      curve(ctx, src.sx, src.sy, tx, ty, pe, 0.9 + 4.2 * t, `rgba(47, 93, 138, ${0.28 + 0.55 * t})`)
-      if (!d && pe > 0.95) { ctx.strokeStyle = 'rgba(47,93,138,.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(tx, ty, 3.5, 0, 7); ctx.stroke() }
+  // lines to the most similar articles: bent, drawn in, thicker and darker = more similar
+  const now = performance.now()
+  for (const l of s.lines || []) {
+    let tx, ty
+    if (l.to) { tx = l.to.sx; ty = l.to.sy } else { const [wx, wy] = project(l.lon, l.lat); tx = wx * v.s + v.tx; ty = wy * v.s + v.ty }
+    const p = ease(Math.max(0, Math.min(1, ((now - l.t0) / 450) * 1.4 - l.i * 0.04)))
+    curve(ctx, l.from.sx, l.from.sy, tx, ty, p, 0.9 + 4.2 * l.t, `rgba(${LINE_RGB}, ${0.28 + 0.55 * l.t})`)
+    if (!l.to && p > 0.95) { ctx.strokeStyle = `rgba(${LINE_RGB},.8)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(tx, ty, 3.5, 0, 7); ctx.stroke() }
+  }
+  const dim = (s.focus?.size || 0) > 0
+  for (const m of s.marks) {
+    const on = !dim || s.focus.has(m.key)
+    ctx.beginPath(); ctx.arc(m.sx, m.sy, m.rad, 0, 7)
+    ctx.fillStyle = color(m.score, on ? (m.n > 1 ? 0.85 : 0.92) : 0.3); ctx.fill()
+    ctx.lineWidth = m.n > 1 ? 1.4 : 0.8
+    ctx.strokeStyle = on ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.35)'; ctx.stroke()
+    if (m.n > 1 && m.rad >= 8) {                     // the count inside a blob
+      ctx.font = `700 ${Math.min(13, Math.round(m.rad * 0.9))}px Inter, system-ui, sans-serif`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillStyle = on ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.5)'
+      ctx.fillText(m.n > 999 ? '1k+' : String(m.n), m.sx, m.sy + 0.5)
+      ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'
     }
   }
-  const dim = active.length > 0
-  for (const d of s.dots) {
-    const on = focus.has(d.id) || active.includes(d)
-    ctx.beginPath(); ctx.arc(d.sx, d.sy, d.rad, 0, 7)
-    ctx.fillStyle = color(d.r.score, dim && !on ? 0.35 : 0.92); ctx.fill()
-    ctx.lineWidth = 0.8; ctx.strokeStyle = dim && !on ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.9)'; ctx.stroke()
-  }
-  for (const src of active) {
-    ctx.beginPath(); ctx.arc(src.sx, src.sy, src.rad + 4, 0, 7)
+  for (const key of [s.selKey, s.hoverKey]) {
+    const m = key && s.marks.find((x) => x.key === key)
+    if (!m) continue
+    ctx.beginPath(); ctx.arc(m.sx, m.sy, m.rad + 4, 0, 7)
     ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(29,27,24,.85)'; ctx.stroke()
   }
-  const pinDot = s.pin && byId.get(s.pin.id)
-  const labelled = pinDot && s.lines?.[pinDot.id]?.data ? s.lines[pinDot.id].data.slice(0, 6) : []
-  ctx.font = '500 11px Inter, system-ui, sans-serif'
-  for (const n of labelled) {
-    const d = byId.get(n.wikidata_id)
-    if (d) halo(ctx, n.titles.fi, d.sx + d.rad + 4, d.sy + 4)
+  for (const lb of s.labels || []) {
+    const m = lb.mark
+    let x, y
+    if (m) { x = m.sx + m.rad + 5; y = m.sy + 4 } else { const [wx, wy] = project(lb.lon, lb.lat); x = wx * v.s + v.tx + 6; y = wy * v.s + v.ty + 4 }
+    ctx.font = lb.main ? '600 13px Inter, system-ui, sans-serif' : '500 11px Inter, system-ui, sans-serif'
+    halo(ctx, lb.text, x, lb.main ? y - 10 : y)
   }
-  if (pinDot) { ctx.font = '600 13px Inter, system-ui, sans-serif'; halo(ctx, pinDot.r.titles.fi, pinDot.sx + pinDot.rad + 7, pinDot.sy - 7) }
 }
 
 function halo(ctx, text, x, y) {
@@ -287,5 +282,3 @@ function curve(ctx, x0, y0, x1, y1, p, width, stroke) {
   }
   ctx.lineCap = 'round'; ctx.lineWidth = width; ctx.strokeStyle = stroke; ctx.stroke()
 }
-
-export { HOME }

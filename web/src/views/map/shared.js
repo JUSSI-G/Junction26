@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api.js'
 
-// What the 3D globe and the 2D map share: the data (places, coastlines), the dots of the current
-// filter, the "most similar" neighbours of the hovered / pinned dot, and the colours.
+// What the 3D globe and the 2D map share: the data (places, coastlines), the marks of the current filter,
+// the "most similar" neighbours of the selected / hovered article, and the colours.
 export const MAX_LINES = 10
 export const HOME = { lat: 64.5, lng: 25.5 }                  // Finland's middle
 export const CORE = [[4, 53.5], [42, 71.5]]                   // the Nordic-Baltic core a view fits to
 export const inCore = (lon, lat) => lon >= CORE[0][0] && lon <= CORE[1][0] && lat >= CORE[0][1] && lat <= CORE[1][1]
-export const STACK_KM = 3.5                                   // spacing of articles stacked at one place
 
 const RAMP = [[0, [66, 146, 132]], [0.5, [226, 178, 74]], [0.8, [214, 108, 62]], [1, [178, 40, 48]]]
 export function color(t, a = 1) {
@@ -20,8 +19,10 @@ export function color(t, a = 1) {
 }
 export const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 export const ease = (x) => 1 - Math.pow(1 - x, 3)
-// 0..1 strength of a "most similar" line
+// 0..1 strength of a "most similar" line: thickness and opacity, the same rule on both maps
 export const lineStrength = (sim) => Math.max(0, Math.min(1, (sim - 0.6) / 0.3))
+// a blob's size relative to a single article: grows with the log of the count (Helsinki, 400 → ×6.4)
+export const blobScale = (n) => 1 + 0.9 * Math.log(n)
 
 const cache = {}
 export function useJson(name) {           // web/public/<name>, fetched once per page load
@@ -39,44 +40,51 @@ export function usePlaces() {
   return p
 }
 
-// One dot per topic in the filter that has a place. Topics at the same place (Helsinki has 400) get a
-// stack index k and a sunflower offset of STACK_KM·√k (lat / lon for the globe; the 2D map spreads them
-// in screen space, at least as far apart as on the ground).
-export function useDots(res, places, semantic) {
+// One mark per place: a single article, or a blob of all the articles at that place (Helsinki has 400).
+// A blob is coloured by its most urgent article, sized by its count; clicking it lists the articles.
+//   mark = {key, lat, lon, items: [article…] (most urgent / closest first), score, sim, n, place, located}
+//   article = {r (the /api/topics row), id, sim (0..1 within this search)}
+export function useMarks(res, places, semantic) {
   return useMemo(() => {
-    if (!res || !places) return { dots: [], unplaced: 0 }
+    if (!res || !places) return { marks: [], markOf: new Map(), unplaced: 0 }
     const sims = res.data.map((r) => r.similarity).filter((v) => v != null)
     const smin = Math.min(...sims), smax = Math.max(...sims)
-    const list = []
-    const stack = new Map()
+    const groups = new Map()
     let unplaced = 0
     for (const r of res.data) {
       const p = places.data[r.wikidata_id]
       if (!p) { unplaced++; continue }
-      const [lat, lon] = p
+      const [lat, lon, located, place] = p
       const key = `${lat.toFixed(3)},${lon.toFixed(3)}`
-      const k = stack.get(key) || 0
-      stack.set(key, k + 1)
-      const a = k * 2.39996, rkm = k ? STACK_KM * Math.sqrt(k) : 0
-      const jlat = lat + (rkm * Math.cos(a)) / 111
-      const jlon = lon + (rkm * Math.sin(a)) / (111 * Math.max(0.2, Math.cos(lat * Math.PI / 180)))
+      let m = groups.get(key)
+      if (!m) { m = { key, lat, lon, items: [], place, located, core: inCore(lon, lat) }; groups.set(key, m) }
+      if (m.located !== located) m.located = 'mixed'
       const sim = r.similarity != null && smax > smin ? (r.similarity - smin) / (smax - smin) : null
-      list.push({ r, id: r.wikidata_id, lat, lon, jlat, jlon, k, sim, place: p[3], located: p[2], core: inCore(lon, lat) })
+      m.items.push({ r, id: r.wikidata_id, sim })
     }
-    // the most urgent (or the closest match) drawn last = on top
-    list.sort((a, b) => (semantic ? (a.sim ?? 0) - (b.sim ?? 0) : (a.r.score ?? 0) - (b.r.score ?? 0)))
-    return { dots: list, unplaced }
+    const marks = [...groups.values()]
+    const markOf = new Map()
+    for (const m of marks) {
+      m.items.sort((a, b) => (semantic ? (b.sim ?? 0) - (a.sim ?? 0) : (b.r.score ?? 0) - (a.r.score ?? 0)))
+      m.n = m.items.length
+      m.score = Math.max(...m.items.map((a) => a.r.score ?? 0))
+      m.sim = semantic ? Math.max(...m.items.map((a) => a.sim ?? 0)) : null
+      for (const a of m.items) markOf.set(a.id, m)
+    }
+    // small on top of big, urgent on top of calm
+    marks.sort((a, b) => b.n - a.n || (semantic ? (a.sim ?? 0) - (b.sim ?? 0) : a.score - b.score))
+    return { marks, markOf, unplaced }
   }, [res, places, semantic])
 }
 
-// The dots a view should fit to: the Nordic-Baltic ones when most dots are there.
-export function fitSet(dots) {
-  const core = dots.filter((d) => d.core)
-  return core.length >= Math.max(5, dots.length * 0.6) ? core : dots
+// The marks a view should fit to: the Nordic-Baltic ones when most are there.
+export function fitSet(marks) {
+  const core = marks.filter((m) => m.core)
+  return core.length >= Math.max(5, marks.length * 0.6) ? core : marks
 }
 
 const simCache = new Map()
-// /api/similar for the hovered and pinned dots: {id: answer + t0 (when it arrived, for the draw-in)}
+// /api/similar for the selected and hovered articles: {id: answer + t0 (when it arrived, for the draw-in)}
 export function useNeighbours(ids) {
   const [neigh, setNeigh] = useState({})
   useEffect(() => {
@@ -94,6 +102,24 @@ export function useNeighbours(ids) {
     }
   }, [ids.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
   return neigh
+}
+
+// The lines to draw: for each source article (selected, hovered), one per neighbour, from the source's
+// mark to the neighbour's mark (or to its bare place when it is not in the current filter).
+export function linesFor(sources, neigh, markOf) {
+  const out = []
+  for (const id of sources) {
+    const from = markOf.get(id)
+    const l = neigh[id]
+    if (!from || !l?.data) continue
+    l.data.forEach((n, i) => {
+      const to = markOf.get(n.wikidata_id)
+      if (to === from) return                      // a neighbour in the same blob: no line to itself
+      out.push({ src: id, from, to: to || null, lat: to ? to.lat : n.lat, lon: to ? to.lon : n.lon,
+                 t: lineStrength(n.similarity), i, t0: l.t0, title: n.titles.fi })
+    })
+  }
+  return out
 }
 
 export function webglOk() {

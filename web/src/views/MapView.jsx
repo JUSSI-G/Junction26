@@ -1,12 +1,13 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSql } from './SqlDrawer.jsx'
 import Map2D from './map/Map2D.jsx'
-import { usePlaces, useDots, useNeighbours, webglOk, color } from './map/shared.js'
+import { usePlaces, useMarks, useNeighbours, linesFor, webglOk, color } from './map/shared.js'
 
-// The map view: every article in the current filter as a dot at its place, coloured by score (how much it
-// needs an editor); with a semantic search, dot size = similarity to the query. Hover or click a dot:
-// lines to its 10 most similar articles (VEC_DISTANCE on the article vectors), thicker = more similar.
-// Click the name in the card to open the article page.
+// The map view: the articles of the current filter at their places, coloured by score (how much they need
+// an editor); with a semantic search, size = similarity to the query. All the articles at one place (400 in
+// Helsinki) are one blob, sized by the count: click it for the list. Pick an article (a dot, or a name in
+// a blob's list): lines to its 10 most similar articles (VEC_DISTANCE on the article vectors), thicker =
+// more similar; hovering a dot previews them. The name in the card opens the article page.
 //   3D globe (default; globe.gl, loaded only when used) | 2D world map (canvas; the light option for
 //   lower-end devices). The choice is remembered in this browser.
 const Map3D = lazy(() => import('./map/Map3D.jsx'))
@@ -15,37 +16,58 @@ function initialMode() {
   try { const m = localStorage.getItem(KEY); if (m === '2d' || m === '3d') return m } catch { /* private mode */ }
   return webglOk() ? '3d' : '2d'
 }
+const where = (m) => (m.located === 'inferred' ? `${m.place} (the place the article links most)` : m.place || '')
 
 export default function MapView({ res, filter, onOpen }) {
   const [mode, setModeRaw] = useState(initialMode)
   const setMode = (m) => { setModeRaw(m); try { localStorage.setItem(KEY, m) } catch { /* ignore */ } }
   const places = usePlaces()
   const semantic = !!(filter.q && filter.mode === 'meaning')
-  const { dots, unplaced } = useDots(res, places, semantic)
-  const [hover, setHover] = useState(null)   // {dot, x, y}
-  const [pin, setPin] = useState(null)       // dot
-  const neigh = useNeighbours([hover?.dot?.id, pin?.id].filter(Boolean))
+  const { marks, markOf, unplaced } = useMarks(res, places, semantic)
+  const [hover, setHover] = useState(null)   // {mark, x, y}
+  const [sel, setSel] = useState(null)       // {key: mark, id: article or null (a blob's list)}
   const [frame, setFrame] = useState(null)
 
-  useEffect(() => { setHover(null); setPin((p) => (p && dots.some((d) => d.id === p.id) ? p : null)) }, [dots])
+  const selMark = sel && marks.find((m) => m.key === sel.key)
+  useEffect(() => { setHover(null); setSel((s) => (s && marks.some((m) => m.key === s.key) ? s : null)) }, [marks])
   useEffect(() => {
     if (mode !== '2d') { setFrame(null); return }
     const id = setInterval(() => { const f = window.__map?.frameMs; if (f != null) setFrame(f) }, 1000)
     return () => clearInterval(id)
   }, [mode])
 
-  const onHover = useCallback((d, x, y) => setHover((h) => (d ? (h?.dot === d && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { dot: d, x, y }) : null)), [])
-  const onPick = useCallback((d) => setPin(d || null), [])
+  // lines for the selected article, and a preview for a hovered single article
+  const hoverId = hover && hover.mark.n === 1 ? hover.mark.items[0].id : null
+  const sources = [sel?.id, hoverId !== sel?.id ? hoverId : null].filter(Boolean)
+  const neigh = useNeighbours(sources)
+  const lines = useMemo(() => linesFor(sources, neigh, markOf), [sources.join('|'), neigh, markOf])
+  const focus = useMemo(() => {
+    const f = new Set(lines.map((l) => l.to?.key).filter(Boolean))
+    for (const m of [selMark, hover?.mark]) if (m) f.add(m.key)
+    return f
+  }, [lines, selMark, hover])
+  const labels = useMemo(() => {
+    if (!sel?.id || !selMark) return []
+    const a = selMark.items.find((x) => x.id === sel.id)
+    const out = [{ mark: selMark, text: a?.r.titles.fi || '', main: true }]
+    for (const l of lines.filter((x) => x.src === sel.id).slice(0, 6)) out.push({ mark: l.to, lat: l.lat, lon: l.lon, text: l.title })
+    return out
+  }, [sel, selMark, lines])
 
-  const shownSim = neigh[pin?.id] || neigh[hover?.dot?.id]
+  const onHover = useCallback((m, x, y) => setHover((h) => (m ? (h?.mark === m && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { mark: m, x, y }) : null)), [])
+  const onPick = useCallback((m) => setSel(m ? { key: m.key, id: m.n === 1 ? m.items[0].id : null } : null), [])
+
+  const shownSim = neigh[sel?.id] || neigh[hoverId]
   useSql([
     ...(res ? res.sql.map((s) => ({ ...s, ms: res.ms })) : []),
     ...(shownSim?.sql ? shownSim.sql.map((s) => ({ ...s, ms: shownSim.ms })) : []),
     ...(places ? places.sql.map((s) => ({ ...s, ms: places.ms })) : []),
   ], [res, places, shownSim])
 
-  const view = { dots, pin, hoverId: hover?.dot?.id, neigh, semantic, onHover, onPick }
-  const cardSim = pin && neigh[pin.id]
+  const view = { marks, lines, focus, selKey: sel?.key, hoverKey: hover?.mark.key, labels, semantic, onHover, onPick }
+  const article = sel?.id && selMark?.items.find((a) => a.id === sel.id)
+  const cardSim = sel?.id && neigh[sel.id]
+  const articles = marks.reduce((n, m) => n + m.n, 0)
   return (
     <div className="mapview">
       <div className="mapwrap">
@@ -58,21 +80,51 @@ export default function MapView({ res, filter, onOpen }) {
           <button className={mode === '2d' ? 'on' : ''} onClick={() => setMode('2d')} title="2D world map: lighter, for lower-end devices">2D map</button>
         </div>
 
-        {hover && hover.dot !== pin && (
+        {hover && hover.mark.key !== sel?.key && (
           <div className="maptip" style={{ left: Math.min(hover.x + 14, window.innerWidth - 290), top: hover.y + 14 }}>
-            <b>{hover.dot.r.titles.fi}</b>
-            <span className="muted">{hover.dot.r.titles.en}</span>
-            <Stats r={hover.dot.r} />
-            <small className="muted">{hover.dot.located === 'inferred' ? `placed at ${hover.dot.place} (the place it links most)` : hover.dot.place} · click to pin</small>
+            {hover.mark.n === 1 ? (
+              <>
+                <b>{hover.mark.items[0].r.titles.fi}</b>
+                <span className="muted">{hover.mark.items[0].r.titles.en}</span>
+                <Stats r={hover.mark.items[0].r} />
+                <small className="muted">{where(hover.mark)} · click to pick</small>
+              </>
+            ) : (
+              <>
+                <b>{hover.mark.place}: {hover.mark.n} articles</b>
+                <span className="muted small">most urgent: {hover.mark.items[0].r.titles.fi} ({hover.mark.items[0].r.score?.toFixed(2)})</span>
+                <small className="muted">click to list them</small>
+              </>
+            )}
           </div>
         )}
-        {pin && (
+
+        {selMark && !article && (
           <aside className="mapcard">
-            <button className="x" onClick={() => setPin(null)} title="Unpin">✕</button>
-            <a className="title" href={`#/article/${pin.id}/languages`} onClick={(e) => { e.preventDefault(); onOpen(pin.id) }}
-               title="Open the article page">{pin.r.titles.fi} →</a>
-            <span className="muted">{pin.r.titles.en}</span>
-            <Stats r={pin.r} />
+            <button className="x" onClick={() => setSel(null)} title="Close">✕</button>
+            <span className="title static">{selMark.place}</span>
+            <span className="muted">{selMark.n} articles here{selMark.located === 'inferred' ? ' (placed by the place they link most)' : ''}
+              {semantic ? ', closest to your search first' : ', most urgent first'}</span>
+            <ol className="bloblist">
+              {selMark.items.map((a) => (
+                <li key={a.id}>
+                  <i style={{ background: color(a.r.score) }} title={`score ${a.r.score?.toFixed(2)}`} />
+                  <button onClick={() => setSel({ key: selMark.key, id: a.id })} title="Pick: lines to its most similar articles">{a.r.titles.fi}</button>
+                  <small>{semantic && a.r.similarity != null ? a.r.similarity.toFixed(2) : a.r.score?.toFixed(2)}</small>
+                  <a href={`#/article/${a.id}/languages`} onClick={(e) => { e.preventDefault(); onOpen(a.id) }} title="Open the article page">→</a>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        )}
+        {article && (
+          <aside className="mapcard">
+            <button className="x" onClick={() => setSel(null)} title="Close">✕</button>
+            {selMark.n > 1 && <button className="back" onClick={() => setSel({ key: selMark.key, id: null })}>← all {selMark.n} articles in {selMark.place}</button>}
+            <a className="title" href={`#/article/${article.id}/languages`} onClick={(e) => { e.preventDefault(); onOpen(article.id) }}
+               title="Open the article page">{article.r.titles.fi} →</a>
+            <span className="muted">{article.r.titles.en}</span>
+            <Stats r={article.r} />
             <h4>Most similar articles</h4>
             {!cardSim?.data && <p className="muted small">Asking MariaDB…</p>}
             {cardSim?.data && (
@@ -89,11 +141,12 @@ export default function MapView({ res, filter, onOpen }) {
             {cardSim?.data && <small className="muted">VEC_DISTANCE on the article vectors · {cardSim.ms} ms in MariaDB</small>}
           </aside>
         )}
+
         <div className="maplegend">
           <div className="ramp"><span>needs an editor less</span><i /><span>more</span></div>
-          {semantic && <div className="small">dot size = how close to “{filter.q}”</div>}
+          <div className="small">{semantic ? `dot size = how close to “${filter.q}”; ` : ''}a big blob = many articles at one place</div>
           <div className="small muted">
-            {dots.length.toLocaleString()} articles on the map{unplaced ? ` · ${unplaced} without a place` : ''}
+            {articles.toLocaleString()} articles at {marks.length.toLocaleString()} places{unplaced ? ` · ${unplaced} without a place` : ''}
             {frame != null && ` · frame ${frame.toFixed(1)} ms`}
           </div>
           <div className="small muted">{mode === '3d' ? 'drag to turn · scroll to zoom' : 'drag to pan · scroll to zoom'}</div>
