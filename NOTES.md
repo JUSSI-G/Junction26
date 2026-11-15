@@ -1454,3 +1454,18 @@ Compared with a snapshot taken before the reload:
 - `docs/process-log.md` and `docs/decisions.md` still mention Docker and `dev.py`: they record what was
   done then.
 - Tests: 43 passed, 1 skipped.
+
+### "0" vs "—" in Possible contradictions (2026-11-15)
+- **What they mean:** "—" = Gemma never judged the topic; "0" = judged, no contradiction. The data
+  matches this:
+  - **Judged:** 27B judgements for 301 topics (the 300 of `top_topics.txt` + Niinistö). Each was judged
+    for 97–110 % of its current matched pairs; 13 of 7,509 judged pairs are no longer matched after the
+    GPU rematch. 162 judged topics have 0 contradictions, 139 have some.
+  - **Not judged:** the other 2,608 topics.
+- **Gap:** the judging list was the top 300 of the *old* score. With missing content in the score,
+  today's top 50 is fully judged, but the top 100 has 4 unjudged and the top 300 has 83 (first at rank
+  54, *Suomenlinna*).
+  - **List:** `data/verda/topics_to_judge.txt` (83 topics, 2,239 matched pairs).
+  - **Estimate:** about 11 min and €0.40 on Verda at the last run's rate (7,401 pairs in 37 min, €1.34).
+- **UI:** the worklist now says "not judged" instead of "—"; hovering a number shows how many pairs Gemma
+  judged.
