@@ -23,3 +23,6 @@ Thumbs.db
 
 # a stray nested repo (a photo), not part of the project
 /Junction26/
+
+# leftover build output of the deleted globe app (safe to delete)
+web/globe/
