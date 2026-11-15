@@ -23,7 +23,9 @@ const time = async (label, fn) => {
 const shot = async (page, name) => { await page.screenshot({ path: path.join(OUT, `demo-${name}.png`) }); console.log('  saved', `demo-${name}.png`) }
 const fail = (m) => { console.error('FAIL:', m); process.exitCode = 1 }
 
-const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge' })
+// software WebGL, so the 3D globe renders in headless Edge on any machine (slower than a real GPU)
+const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge',
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })
 page.on('pageerror', (e) => fail(`page error: ${e.message}`))
 
@@ -89,53 +91,58 @@ await time('Edit wars -> Article on a date', async () => {
 })
 await shot(page, '7-article-asof')
 
-// 4. map, with the semantic search
-await time(`map for "${Q}"`, async () => {
-  await page.goto(`${BASE}/contested/#/map?q=${encodeURIComponent(Q)}`)
-  await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/[1-9][\d,]* articles on the map/))
-})
-await page.waitForTimeout(900)            // the fit animation
-await shot(page, '8-map-search')
+// 4-6. the map, first as the 3D globe (default), then the 2D world map (the light option)
+for (const mode of ['3d', '2d']) {
+  const tag = mode === '3d' ? '3D' : '2D'
+  await page.evaluate((m) => localStorage.setItem('contested.mapMode', m), mode)
+  await time(`${tag} map for "${Q}"`, async () => {
+    await page.goto(`${BASE}/contested/#/map?q=${encodeURIComponent(Q)}`)
+    await page.reload()
+    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/[1-9][\d,]* articles on the map/))
+    await page.waitForSelector('.mapcanvas canvas')
+  })
+  await page.waitForTimeout(mode === '3d' ? 2500 : 900)      // camera flight / fit animation
+  await shot(page, `8-${mode}-map-search`)
 
-// 5. click a dot: the civil war's own dot
-const box = await page.$eval('.mapwrap canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height } })
-// where the map drew the civil war's dot (window.__map), then a real hover and click there
-let found = null
-await time('hover the civil war dot', async () => {
-  const p = await page.evaluate(() => { const d = window.__map.dots.find((x) => x.id === 'Q211855'); return d && { x: d.sx, y: d.sy } })
-  if (!p) return
-  await page.mouse.move(box.x + p.x, box.y + p.y)
-  await page.waitForSelector('.maptip')
-  if ((await page.$eval('.maptip b', (b) => b.innerText)) === 'Suomen sisällissota') found = { x: box.x + p.x, y: box.y + p.y }
-})
-await shot(page, '8b-map-hover')
-if (!found) fail('civil war dot not found on the map')
-else {
-  await time('click dot -> 10 similar articles + lines', async () => {
+  // where the map drew the civil war's dot, then a real hover and click there
+  const where = () => page.evaluate((m) => {
+    if (m === '2d') { const d = window.__map.dots.find((x) => x.id === 'Q211855'); return d && { x: d.sx, y: d.sy } }
+    const g = window.__globe, d = g.pointsData().find((x) => x.id === 'Q211855')
+    return d && g.getScreenCoords(d.jlat, d.jlon, 0.0068)
+  }, mode)
+  const box = await page.$eval('.mapcanvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top } })
+  let found = null
+  await time(`${tag}: hover the civil war dot`, async () => {
+    const p = await where()
+    if (!p) return
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [2, 2]]) {
+      await page.mouse.move(box.x + p.x + dx, box.y + p.y + dy)
+      const tip = await page.waitForSelector('.maptip b', { timeout: 1500 }).then((e) => e.innerText()).catch(() => null)
+      if (tip === 'Suomen sisällissota') { found = { x: box.x + p.x + dx, y: box.y + p.y + dy }; break }
+    }
+  })
+  await shot(page, `8b-${mode}-map-hover`)
+  if (!found) { fail(`${tag}: civil war dot not found`); continue }
+  await time(`${tag}: click dot -> 10 similar articles + lines`, async () => {
     await page.mouse.click(found.x, found.y)
     await page.waitForSelector('.mapcard .simlist li')
   })
-  await page.waitForTimeout(600)          // line draw-in
-  await shot(page, '9-map-dot')
-  const frame = await page.$eval('.maplegend', (e) => e.innerText.match(/frame ([\d.]+) ms/)?.[1])
-  console.log(`  map frame time: ${frame} ms`)
-  // hover another dot while the first is pinned (<= 20 lines on screen)
-  await page.mouse.move(found.x + 60, found.y + 40)
-  await page.waitForTimeout(500)
-  await time('map card name -> article page', async () => {
+  await page.waitForTimeout(mode === '3d' ? 1500 : 600)
+  await shot(page, `9-${mode}-map-dot`)
+  if (mode === '2d') console.log(`  2D frame time: ${await page.$eval('.maplegend', (e) => e.innerText.match(/frame ([\d.]+) ms/)?.[1])} ms`)
+  else console.log(`  3D frames/s (software WebGL): ${await page.evaluate(() => new Promise((ok) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(f); else ok((n / 2).toFixed(0)) }; requestAnimationFrame(f) }))}`)
+  await time(`${tag}: map card name -> article page`, async () => {
     await page.click('.mapcard .title')
     await page.waitForSelector('.cmprow .cell')
   })
+  await time(`${tag}: map, all articles`, async () => {
+    await page.goto(`${BASE}/contested/#/map`)
+    // "2,682" or "2 682": the browser's locale decides the thousands separator
+    await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/\d[\d,\s]{3,} articles on the map/))
+  })
+  await page.waitForTimeout(mode === '3d' ? 2500 : 900)
+  await shot(page, `10-${mode}-map-all`)
 }
-
-// 6. the whole map, no filter
-await time('map, all articles', async () => {
-  await page.goto(`${BASE}/contested/#/map`)
-  // "2,682" or "2 682": the browser's locale decides the thousands separator
-  await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/\d[\d,\s]{3,} articles on the map/))
-})
-await page.waitForTimeout(900)
-await shot(page, '10-map-all')
 
 console.log('\ntimings (ms):', JSON.stringify(Object.fromEntries(timings)))
 await browser.close()

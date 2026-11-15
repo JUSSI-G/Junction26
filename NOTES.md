@@ -1332,3 +1332,25 @@ Compared with a snapshot taken before the reload:
   ~330 ms; the map click is 11 ms.
 - **Map bug fixed:** hovering a dot whose neighbours were still loading could throw
   (`shownSim.sql` undefined).
+
+## Map: 3D globe by default, 2D world map as the light option (2026-11-15)
+- **3D (default):** `web/src/views/map/Map3D.jsx`, globe.gl (lazy-loaded), styled like the original
+  globe:
+  - **Base:** the dark earth texture with relief, the dark sky, the blue atmosphere, country outlines
+    (`web/public/world3d.json`), Finland highlighted.
+  - **Dots:** coloured by score, sized by similarity in a semantic search. A dot's size is a distance on
+    the ground, so dots shrink as you zoom in. Stacked articles (Helsinki has 400) spread at least 1.8
+    dot radii apart, recomputed after each zoom.
+  - **Arcs:** hover or click → gold arcs to the 10 most similar articles, with flowing dashes and name
+    labels. The camera sits a little south of the filter, so the arcs show their curve.
+- **2D (toggle, remembered in the browser):** `Map2D.jsx`, now the **whole world** in the Equal Earth
+  projection, from `web/public/world.json` (Natural Earth 1:10m; detailed in Northern Europe, simplified
+  elsewhere, big lakes everywhere; 78k points, 1.3 MB; `scripts/make_world_map.py`, which replaces
+  `make_nordic_map.py`). Zoom out to the whole world; city names appear when you are close.
+- **Shared code:** data, dots, neighbours and colours are in `map/shared.js`; the card, tooltip, legend
+  and SQL are in `MapView.jsx`. Without WebGL, the map starts in 2D.
+- **Playwright** (`web/scripts/demo-flow.mjs`) checks both modes: hover the civil war's dot → click → 10
+  similar articles → card name → article page.
+  - **2D:** click 9–14 ms, frame 0.2–0.4 ms.
+  - **3D:** timings measured with software WebGL (SwiftShader, ~3 frames/s in headless Edge), so they say
+    nothing about a laptop GPU; check the 3D globe on the demo machine.
