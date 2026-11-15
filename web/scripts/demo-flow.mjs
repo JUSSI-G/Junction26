@@ -23,9 +23,7 @@ const time = async (label, fn) => {
 const shot = async (page, name) => { await page.screenshot({ path: path.join(OUT, `demo-${name}.png`) }); console.log('  saved', `demo-${name}.png`) }
 const fail = (m) => { console.error('FAIL:', m); process.exitCode = 1 }
 
-// software WebGL, so the 3D globe renders in headless Edge on any machine (slower than a real GPU)
-const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] })
+const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge' })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })
 page.on('pageerror', (e) => fail(`page error: ${e.message}`))
 
@@ -91,10 +89,9 @@ await time('Edit wars -> Article on a date', async () => {
 })
 await shot(page, '7-article-asof')
 
-// 4-6. the map, first as the 3D globe (default), then the 2D world map (the light option)
-for (const mode of ['3d', '2d']) {
+// 4-6. the map
+for (const mode of ['2d']) {
   const tag = mode === '3d' ? '3D' : '2D'
-  await page.evaluate((m) => localStorage.setItem('contested.mapMode', m), mode)
   await time(`${tag} map for "${Q}"`, async () => {
     await page.goto(`${BASE}/contested/#/map?q=${encodeURIComponent(Q)}`)
     await page.reload()

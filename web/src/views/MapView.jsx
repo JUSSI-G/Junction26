@@ -1,26 +1,17 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSql } from './SqlDrawer.jsx'
 import Map2D from './map/Map2D.jsx'
-import { usePlaces, useMarks, useClusters, useNeighbours, linesFor, webglOk, color } from './map/shared.js'
+import { usePlaces, useMarks, useClusters, useNeighbours, linesFor, color } from './map/shared.js'
 
 // The map view: the articles of the current filter at their places, coloured by score (how much they need
 // an editor); with a semantic search, size = similarity to the query. All the articles at one place (400 in
 // Helsinki) are one blob, sized by the count: click it for the list. Pick an article (a dot, or a name in
 // a blob's list): lines to its 10 most similar articles (VEC_DISTANCE on the article vectors), thicker =
 // more similar; hovering a dot previews them. The name in the card opens the article page.
-//   3D globe (default; globe.gl, loaded only when used) | 2D world map (canvas; the light option for
-//   lower-end devices). The choice is remembered in this browser.
-const Map3D = lazy(() => import('./map/Map3D.jsx'))
-const KEY = 'contested.mapMode'
-function initialMode() {
-  try { const m = localStorage.getItem(KEY); if (m === '2d' || m === '3d') return m } catch { /* private mode */ }
-  return webglOk() ? '3d' : '2d'
-}
+// The map itself is a 2D world map on one canvas (map/Map2D.jsx).
 const where = (m) => (m.located === 'inferred' ? `${m.place} (the place the article links most)` : m.place || '')
 
 export default function MapView({ res, filter, onOpen }) {
-  const [mode, setModeRaw] = useState(initialMode)
-  const setMode = (m) => { setModeRaw(m); try { localStorage.setItem(KEY, m) } catch { /* ignore */ } }
   const places = usePlaces()
   const semantic = !!(filter.q && filter.mode === 'meaning')
   const { marks: places1, unplaced } = useMarks(res, places, semantic)
@@ -36,10 +27,9 @@ export default function MapView({ res, filter, onOpen }) {
   useEffect(() => { setHover(null) }, [marks])
   useEffect(() => { setSel(null) }, [places1])
   useEffect(() => {
-    if (mode !== '2d') { setFrame(null); return }
     const id = setInterval(() => { const f = window.__map?.frameMs; if (f != null) setFrame(f) }, 1000)
     return () => clearInterval(id)
-  }, [mode])
+  }, [])
 
   // lines for the selected article, and a preview for a hovered single article
   const hoverId = hover && hover.mark.n === 1 ? hover.mark.items[0].id : null
@@ -76,14 +66,8 @@ export default function MapView({ res, filter, onOpen }) {
   return (
     <div className="mapview">
       <div className="mapwrap">
-        {mode === '3d'
-          ? <Suspense fallback={<div className="maploading">Loading the globe…</div>}><Map3D {...view} onFail={() => setMode('2d')} /></Suspense>
-          : <Map2D {...view} />}
+        <Map2D {...view} />
 
-        <div className="mapmode seg" role="group" aria-label="Map type">
-          <button className={mode === '3d' ? 'on' : ''} onClick={() => setMode('3d')} title="3D globe (needs a graphics card)">3D globe</button>
-          <button className={mode === '2d' ? 'on' : ''} onClick={() => setMode('2d')} title="2D world map: lighter, for lower-end devices">2D map</button>
-        </div>
 
         {hover && hover.mark.key !== selMark?.key && (
           <div className="maptip" style={{ left: Math.min(hover.x + 14, window.innerWidth - 290), top: hover.y + 14 }}>
@@ -156,7 +140,7 @@ export default function MapView({ res, filter, onOpen }) {
             {articles.toLocaleString()} articles at {places1.length.toLocaleString()} places{unplaced ? ` · ${unplaced} without a place` : ''}
             {frame != null && ` · frame ${frame.toFixed(1)} ms`}
           </div>
-          <div className="small muted">{mode === '3d' ? 'drag to turn · scroll to zoom' : 'drag to pan · scroll to zoom'}</div>
+          <div className="small muted">drag to pan · scroll to zoom</div>
         </div>
       </div>
     </div>

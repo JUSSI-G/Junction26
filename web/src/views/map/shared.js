@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api.js'
 
-// What the 3D globe and the 2D map share: the data (places, coastlines), the marks of the current filter,
+// The map's data and logic (the drawing is in Map2D.jsx): the data (places, coastlines), the marks of the current filter,
 // the "most similar" neighbours of the selected / hovered article, and the colours.
 export const MAX_LINES = 10
 export const HOME = { lat: 64.5, lng: 25.5 }                  // Finland's middle
@@ -174,9 +174,3 @@ export function linesFor(sources, neigh, markOf) {
   return out
 }
 
-export function webglOk() {
-  try {
-    const c = document.createElement('canvas')
-    return !!(window.WebGLRenderingContext && (c.getContext('webgl2') || c.getContext('webgl')))
-  } catch { return false }
-}
