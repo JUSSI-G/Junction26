@@ -97,30 +97,9 @@ def test_demo_vandalism_dropped_and_name_war(conn):
     assert "sisällissota" in wars[0]["text"] or "vapaussota" in wars[0]["text"]
 
 
-def test_term_drift_tracks_the_name(conn):
-    rows = H.term_drift(conn, DEMO, ["vapaussota", "sisällissota"], "year")
-    by_year = {r["period"]: r["terms"] for r in rows}
-    assert by_year["2004"]["vapaussota"] >= 1
-    assert by_year["2020"]["sisällissota"] >= 1
-
-
-def test_sweep_matches_as_of_snapshots(conn):
-    """term_drift's +1/-1 sweep must agree with an AS OF snapshot taken at every period end."""
-    for row in H.term_drift(conn, DEMO, ["sota"], "quarter"):
-        end = row["period_end"]           # last second of the period
-        try:
-            snap = H.as_of(conn, DEMO, end)["sentences"]
-        except H.NotFound:
-            snap = []
-        assert row["sentences"] == len(snap), row["period"]
-        assert row["terms"]["sota"] == sum("sota" in s["text"].lower() for s in snap), row["period"]
-
-
 def test_revisions_and_lookup(conn):
     revs = H.revisions(conn, ABC)
     assert [r["editor"] for r in revs] == ["u1", "u2", "u3"]
-    r = H.revision(conn, revs[1]["rev_id"])
-    assert r["page_id"] == ABC and r["until"].startswith("2014")
 
 
 def test_bitemporal(conn):
@@ -134,22 +113,4 @@ def test_bitemporal(conn):
     assert any("muistovuonna" in t for t in about_2018("2020-01-01"))
     # And no 1918 sentence is "about" the 1600s.
     assert H.about(conn, DEMO, "2020-01-01", 1600, 1699) == []
-    allw = H.about_all(conn, "2020-01-01", 1917, 1918)
-    assert allw[0]["page_id"] == DEMO and allw[0]["sentences"] >= 3
 
-
-def test_globe(conn):
-    pts = {p["page_id"]: p for p in H.map_points(conn)}
-    assert ABC not in pts                               # no coordinates -> not on the map
-    demo = pts[DEMO]
-    assert abs(demo["lat"] - 61.4978) < 0.01 and abs(demo["lon"] - 23.7608) < 0.01
-    assert demo["returns"] > 0 and demo["contested"] == demo["returns"] + demo["reverts"]
-    near = H.near(conn, 61.5, 23.8, 1.0)
-    assert near[0]["page_id"] == DEMO and near[0]["km"] < 5
-    assert H.near(conn, 0, 0, 1.0) == []
-
-
-def test_stats(conn):
-    s = H.stats(conn, "demo", runs=2)
-    assert s["articles"] == 2 and s["revisions"] > 50
-    assert set(s["query_ms"]) >= {"as_of", "edit_wars", "drift"}

@@ -16,3 +16,6 @@ web/dist/
 web/globe/dist/
 
 *.part
+
+# a stray nested repo (a photo), not part of the project
+/Junction26/

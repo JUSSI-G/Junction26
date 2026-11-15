@@ -15,7 +15,6 @@ lang_sentence_cpu is kept for rollback (RENAME back); drop it when not needed.
 """
 from __future__ import annotations
 
-import struct
 import sys
 import time
 

@@ -116,20 +116,6 @@ def test_compare_unknown_topic_is_404(client):
     assert client.get("/api/compare/Q1").status_code == 404
 
 
-def test_lang_lines_for_the_globe(client):
-    body = client.get("/api/lang-lines").json()
-    rows = body["data"]
-    assert "FROM article_divergence" in body["sql"] and len(rows) > 800
-    assert {r["located_by"] for r in rows} <= {"page_place", "article_geo", "inferred"}
-    by_id = {r["wikidata_id"]: r for r in rows}
-    assert by_id["Q211855"]["located_by"] == "page_place"
-    assert by_id["Q29207"]["place"] == "Salo"                     # inferred: his most-linked place
-    flagged = {x["wikidata_id"] for x in client.get("/api/worklist?limit=3000&include_flagged=1").json()["data"]}
-    kept = {x["wikidata_id"] for x in client.get("/api/worklist?limit=3000").json()["data"]}
-    assert not (set(by_id) & (flagged - kept))                     # different-subject topics hidden
-    assert all(0 <= r["fi_sv"] <= 2 and 0 <= r["fi_en"] <= 2 for r in rows)
-
-
 def test_missing_counts_agree_between_worklist_and_compare(client):
     """missing_en in the worklist = the compare rows with status missing_en (nothing within 0.418)."""
     work = {x["wikidata_id"]: x for x in client.get("/api/worklist?limit=3000").json()["data"]}

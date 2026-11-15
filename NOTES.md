@@ -1389,3 +1389,31 @@ Compared with a snapshot taken before the reload:
     camera to 35° S, because after heavy merging most of the remaining marks are scattered singles.
 - **Demo flow** passes in both modes (the civil war is in a blob of 4–7 depending on the zoom; picked
   from the list).
+
+## Cleanup (2026-11-15)
+- **3D globe removed.** The map is the 2D world map only: the component, `world3d.json`, the earth
+  texture, and globe.gl / three.js from `web/package.json`.
+- **Deleted, because the demo app no longer reaches it** (all still in git history):
+  - **Old frontends:** the old place globe (`web/globe/`, the `/globe/` route), the pre-demo React app
+    (`LegacyApp`, `GlobeView`, `NarrativeDrift`, `Stats`, the old `Worklist`), their images and the
+    react-globe.gl / recharts packages.
+  - **Mock mode:** `web/.env.mock`, `.env.production`, `dev:mock`, 19 of 21 mocks; kept: `worklist.json`
+    and `compare.json`, the contract examples the tests check against.
+  - **API:** the place routes (`api/places.py`; its two SQL helpers moved to `api/db.py`),
+    `/api/lang-lines`, and the history routes only the deleted views used (drift, term-drift, about-all,
+    revision, map, near, stats), with their models, `db/queries/*.sql` and tests.
+  - **Tools:** `api/dump_mocks.py`, `api/check_api.py` (the Playwright demo flow times the real path).
+  - **Screenshots:** the old screenshots (`docs/screenshots` except `demo-*`, `web/screenshots`).
+  - **Stray repo:** a nested git repo `Junction26/` holding only a photo, which had been committed by
+    accident; untracked, the folder is left on disk and in `.gitignore`.
+  - **Styles:** 48 CSS rules of the deleted views.
+- **Kept on purpose:**
+  - **Data pipeline:** every loader and builder of a table the app reads. The place pipeline stays
+    (`ingest/places.py`, `build_heat.py`, `db/heat_sql.py`…), because `topic_place` comes from
+    `page_place` / `article_geo` / `page_origin`.
+  - **Kristian's history routes:** the ones his three views use, plus `ingest/synthetic.py` and
+    `event_time.py` (tests, the "about" filter).
+  - **Scoring:** `scoring/` (judging, and `sentence_score` feeds the contested-sentence history) and
+    `scripts/verda/`.
+- **Checks:** tests 43 passed, 1 skipped (the others belonged to deleted code); demo flow passes; the web
+  build went from ~4 s / 2 MB JS to 0.45 s.

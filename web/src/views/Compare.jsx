@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { api, isEditorMock } from '../api.js'
+import { api } from '../api.js'
 import { useSql } from './SqlDrawer.jsx'
 
 // Comparison view: fi | sv | en aligned sentence by sentence (GET /api/compare/{wikidata_id},
@@ -78,9 +78,6 @@ export default function Compare({ wikidataId, onBack, onHistory, embedded = fals
   return (
     <div className="compare">
       {onBack && <button className="btn ghost back" onClick={onBack}>← Worklist</button>}
-      {isEditorMock && topic.wikidata_id !== wikidataId && (
-        <p className="mocknote">Mock data holds one topic only, so this shows <b>{topic.titles.fi}</b> instead of {wikidataId}.</p>
-      )}
 
       <div className="panel cmphead">
         {!embedded && <div className="cmptitle">
@@ -88,11 +85,11 @@ export default function Compare({ wikidataId, onBack, onHistory, embedded = fals
           <span className="muted small">{topic.wikidata_id}</span>
           {onHistory && <button className="btn sm" onClick={() => onHistory(topic)} title="Kristian's views of the Finnish article: edit wars, contested sentences, any date">Finnish edit history →</button>}
         </div>}
-        <div className="dists">
+        {!embedded && <div className="dists">
           {[['fi_sv', 'fi ↔ sv'], ['fi_en', 'fi ↔ en'], ['sv_en', 'sv ↔ en']].map(([k, l]) => (
             <span key={k} title="Whole-article cosine distance (bge-m3): 0 = same, higher = more different"><small>{l}</small><b>{scores?.[k] != null ? scores[k].toFixed(3) : '—'}</b></span>
           ))}
-        </div>
+        </div>}
         <div className="filters">
           {[['all', 'All'], ['problems', 'Needs an editor'], ...SEVERITY.filter((s) => s !== 'match').map((s) => [s, STATUS[s].label]), ['match', 'Match']].map(([k, l]) => (
             <button key={k} className={`chip ${k} ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)} disabled={!counts[k]}>

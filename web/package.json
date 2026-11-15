@@ -5,16 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:mock": "vite --mode mock",
     "build": "vite build",
     "preview": "vite preview",
-    "screenshots:editor": "node scripts/screenshot-editor.mjs"
+    "demo-flow": "node scripts/demo-flow.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "react-globe.gl": "2.37.1",
-    "recharts": "2.12.7"
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "4.3.1",

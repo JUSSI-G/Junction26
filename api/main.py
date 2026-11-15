@@ -1,24 +1,19 @@
-"""The combined API: one FastAPI app, two sets of routes.
+"""The API: one FastAPI app.
 
-  * sentence routes (this file): Contested History — as-of, diff, contested, edit wars, drift,
-    bitemporal "about", map. Contract: models in api/models.py.
-  * place routes (api/places.py): Rewritten — heat, arcs, captions, place and article panels.
-  * editor routes (api/editor.py): the worklist and the fi / sv / en comparison (docs/contracts.md).
+  * explore routes (api/explore.py): the worklist with semantic / title search and topic chips, the
+    map's places and most-similar articles.
+  * editor routes (api/editor.py): the fi / sv / en comparison (docs/contracts.md c).
+  * history routes (this file): the Finnish article's history from the system-versioned sentences
+    (as-of, diff, contested sentences, edit wars, bitemporal "about"). Models in api/models.py.
 
-    uvicorn api.main:app --reload            # http://localhost:8000/docs
+    uvicorn api.main:app --port 8000          # http://localhost:8000/docs
 
-Frontends, served from the same origin:
-    /            redirects to /contested/ (the editor app: worklist, article page, map)
-    /contested/  the React app (web/dist)
-    /globe/      the old place globe (web/globe/dist), hidden from the navigation
+The built React app (web/dist) is served at /contested/; / redirects there.
 """
 from __future__ import annotations
 
 import mimetypes
 import os
-import time
-from pathlib import Path
-from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,25 +24,20 @@ from fastapi.staticfiles import StaticFiles
 from api import history as H
 from api import models as M
 from api.db import DB_ERRORS, db_error, pool
-from api.places import router as places_router
 from api.editor import router as editor_router
 from api.explore import router as explore_router
 from common import embed
 from common.db import ROOT
 
-app = FastAPI(title="Rewritten · Contested History", version="2.0",
-              description="How Finnish Wikipedia told its history: places and links over time, and "
-                          "sentence-level history, from MariaDB system-versioned tables.")
+app = FastAPI(title="Contested History", version="3.0",
+              description="Finnish, Swedish and English Wikipedia on Finland's history: where the versions "
+                          "differ, and where editors fight. MariaDB vectors + system-versioned tables.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
-app.include_router(places_router)
 app.include_router(editor_router)
 app.include_router(explore_router)
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 if os.environ.get("EMBED_WARM", "1") == "1":
     embed.warm()                  # load bge-m3 for the semantic search in a background thread
-
-Bucket = Literal["month", "quarter", "year"]
-
 
 def run(fn, *args):
     try:
@@ -92,17 +82,6 @@ def edit_wars(page_id: int, limit: int = Query(20, le=200)):
     return run(H.edit_wars, page_id, limit)
 
 
-@app.get("/api/articles/{page_id}/drift", response_model=list[M.Drift])
-def drift(page_id: int, bucket: Bucket = "month"):
-    return run(H.drift, page_id, bucket)
-
-
-@app.get("/api/articles/{page_id}/term-drift", response_model=list[M.TermDrift])
-def term_drift(page_id: int, terms: str | None = Query(None, description="comma-separated"),
-               bucket: Bucket = "month"):
-    return run(H.term_drift, page_id, terms.split(",") if terms else None, bucket)
-
-
 @app.get("/api/articles/{page_id}/revisions", response_model=list[M.RevisionTick])
 def revisions(page_id: int):
     return run(H.revisions, page_id)
@@ -121,55 +100,13 @@ def about(page_id: int, from_: int = Query(..., alias="from", description="first
     return run(H.about, page_id, date, from_, to)
 
 
-@app.get("/api/about", response_model=list[M.AboutArticle])
-def about_all(from_: int = Query(..., alias="from"), to: int = Query(...), date: str | None = None,
-              limit: int = Query(50, le=500)):
-    """Bitemporal across all articles: what Wikipedia said at `date` about events of `from`–`to`."""
-    return run(H.about_all, date, from_, to, limit)
-
-
-@app.get("/api/revisions/{rev_id}", response_model=M.Revision)
-def revision(rev_id: int):
-    return run(H.revision, rev_id)
-
-
-_map_cache: dict = {}
-
-
-@app.get("/api/map", response_model=list[M.MapPoint])
-def map_points(refresh: bool = False):
-    """Every placed article with its contestedness (cached 5 min: it aggregates all history)."""
-    if refresh or not _map_cache or time.time() - _map_cache["at"] > 300:
-        _map_cache.update(at=time.time(), data=run(H.map_points))
-    return _map_cache["data"]
-
-
-@app.get("/api/map/near", response_model=list[M.Near])
-def map_near(lat: float, lon: float, deg: float = 1.0, limit: int = Query(10, le=50)):
-    return run(H.near, lat, lon, deg, limit)
-
-
-_stats_cache: dict = {}
-
-
-@app.get("/api/stats", response_model=M.Stats)
-def stats(refresh: bool = False):
-    if refresh or not _stats_cache or time.time() - _stats_cache["at"] > 300:
-        _stats_cache.update(at=time.time(),
-                            data=run(H.stats, os.environ.get("DATASET", "small")))
-    return _stats_cache["data"]
-
-
 # The built frontends are served from the same origin for single-box deploys.
 # Windows' registry often maps .js to text/plain, which browsers refuse for module scripts.
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 CONTESTED = ROOT / "web" / "dist"            # React: sentence views (vite base /contested/)
-GLOBE = ROOT / "web" / "globe" / "dist"      # the place globe
 if CONTESTED.exists():
     app.mount("/contested", StaticFiles(directory=CONTESTED, html=True), name="contested")
-if GLOBE.exists():
-    app.mount("/globe", StaticFiles(directory=GLOBE, html=True), name="globe")
 
 
 @app.get("/", include_in_schema=False)

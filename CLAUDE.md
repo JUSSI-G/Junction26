@@ -68,16 +68,18 @@ today's English/Swedish, e.g. "did the Finnish article catch up with the English
   don't mix them up). Database `wiki`. Settings in `.env` (gitignored).
 - Python venv `.venv` (`.venv\Scripts\python`). Run scripts as modules: `python -m ingest.…`.
 - One server: `.venv\Scripts\python -m uvicorn api.main:app --port 8000`.
-  `/` = globe (`web/globe/`), `/contested/` = React app (`web/`).
+  `/` redirects to `/contested/` = the React app (`web/`): worklist → article page → 2D map.
 
-## Code layout (after the merge)
+## Code layout (after the 2026-11-15 cleanup)
 
-- `api/` FastAPI: `main.py` (Kristian's sentence routes), `places.py` (place router), `db.py` (one pool;
+- `api/` FastAPI: `explore.py` (worklist search, chips, map), `editor.py` (fi / sv / en compare),
+  `main.py` (Kristian's history routes for the Finnish article), `db.py` (one pool, SQL helpers;
   a missing table answers 503 with the command that loads it).
 - `common/` connection + schema. `db/schema.sql` = one schema. `db/queries/*.sql` one file per view.
-- `ingest/` loaders (dataset M, sentences, places, place links, geo, event time).
-- `scoring/` Gemma / heuristic scoring (`score.py`, `prompt.txt`, `eval.py`).
-- `web/globe/` the globe (vanilla JS + globe.gl). `web/` the React app (Vite + Recharts).
+- `ingest/` loaders (dataset M, dataset S, sentences, Verda sentences + judgements, categories, places, geo, event time).
+- `scoring/` Gemma: pair judging on Verda (`judge_pairs.py`, `eval_pairs.py`) and sentence scoring (`score.py`).
+- `web/` the React app (Vite): `src/views/` (ArticleList, ArticlePage, Compare, MapView + `map/`, Kristian's
+  EditWars / ContestedMap / TimeSlider). `web/scripts/demo-flow.mjs` = the Playwright demo run.
 - Docs: `NOTES.md` (log), `docs/merge-plan.md`, `docs/decisions.md`, `docs/numbers.md`,
   `docs/process-log.md` (Verda), `docs/findings.md`.
 

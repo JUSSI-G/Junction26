@@ -5,6 +5,7 @@ later), so an endpoint whose tables are not there yet answers 503 and says which
 """
 from __future__ import annotations
 
+import time
 import os
 import re
 
@@ -53,3 +54,28 @@ def db_error(e: Exception) -> HTTPException:
 
 
 DB_ERRORS = (pymysql.err.OperationalError, pymysql.err.ProgrammingError)
+
+def render(sql, params):
+    """SQL with ? replaced by the values, for display in the SQL drawer (execution uses params)."""
+    out, it = [], iter(params)
+    for part in sql.split("?"):
+        out.append(part)
+        try:
+            v = next(it)
+        except StopIteration:
+            continue
+        out.append(str(v) if isinstance(v, (int, float)) else "'" + str(v).replace("'", "''") + "'")
+    return "".join(out).strip()
+
+
+def query(sql, params=()):
+    """Run one query on a pooled connection; returns (rows as dicts, ms).
+    SQL is written with ? placeholders (that is what the SQL drawer shows); pymysql wants %s."""
+    try:
+        with pool.connection() as con, con.cursor() as cur:
+            t = time.perf_counter()
+            cur.execute(sql.replace("?", "%s") if params else sql, params or None)
+            rows = list(cur.fetchall())
+            return rows, round((time.perf_counter() - t) * 1000, 2)
+    except DB_ERRORS as e:
+        raise db_error(e)

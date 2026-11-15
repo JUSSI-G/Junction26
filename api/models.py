@@ -82,23 +82,6 @@ class EditWar(_M):
     periods: list[Period]
 
 
-class Drift(_M):
-    period: str
-    period_end: str | None
-    event_name: str | None
-    n: int
-    avg_neutrality: float | None
-    loaded: int
-    partisan: int
-
-
-class TermDrift(_M):
-    period: str
-    period_end: str | None
-    sentences: int
-    terms: dict[str, int]
-
-
 class RevisionTick(_M):
     rev_id: int
     timestamp: str | None
@@ -108,20 +91,6 @@ class RevisionTick(_M):
     minor: bool
     n_sentences: int
     is_revert: bool
-
-
-class Revision(_M):
-    rev_id: int
-    page_id: int
-    title: str
-    timestamp: str | None
-    until: str | None
-    editor: str | None
-    anonymous: bool
-    comment: str | None
-    minor: bool
-    n_sentences: int
-    url: str
 
 
 class Ancestor(_M):
@@ -144,52 +113,3 @@ class About(_M):
     event_from: int
     event_to: int
 
-
-class AboutArticle(_M):
-    page_id: int
-    title: str
-    sentences: int
-    sample: list[str]
-
-
-class MapPoint(_M):
-    page_id: int
-    title: str
-    lat: float
-    lon: float
-    source: str | None
-    revisions: int
-    reverts: int
-    returns: int
-    churn: float
-    n_sentences: int
-    contested: int
-    first_rev: str | None
-    last_rev: str | None
-
-
-class Near(_M):
-    page_id: int
-    title: str
-    lat: float
-    lon: float
-    source: str | None
-    km: float | None
-
-
-class Timing(_M):
-    p95: float
-    median: float
-
-
-class Stats(_M):
-    dataset: str
-    articles: int
-    revisions: int
-    sentence_rows: int
-    current_sentences: int
-    distinct_sentences: int
-    scored_sentences: int
-    query_ms: dict[str, Timing]
-    sample_article: dict | None
-    scored_by: dict[str, int] = {}

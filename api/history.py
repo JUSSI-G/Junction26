@@ -4,8 +4,7 @@ JSON-ready data in the shape of the API contract (plan §6.2). SQL lives in db/q
 from __future__ import annotations
 
 import re
-import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 
 from common.db import load_query
@@ -138,42 +137,7 @@ def edit_wars(conn, page_id: int, limit: int = 20) -> list[dict]:
     return list(out.values())
 
 
-def _period_label(start: datetime, bucket: str) -> str:
-    if bucket == "year":
-        return f"{start:%Y}"
-    if bucket == "quarter":
-        return f"{start:%Y}-Q{(start.month - 1) // 3 + 1}"
-    return f"{start:%Y-%m}"
-
-
-def _period_end(start: datetime, bucket: str) -> str:
-    months = start.month - 1 + STEP_DELTA[bucket]
-    end = start.replace(year=start.year + months // 12, month=months % 12 + 1)
-    return iso(end - timedelta(seconds=1))
-
-
-def drift(conn, page_id: int, bucket: str = "month") -> list[dict]:
-    rows = _rows(conn, "drift", {"page_id": page_id}, months=STEP_DELTA[bucket])
-    return [dict(period=_period_label(r["period_start"], bucket), period_end=_period_end(r["period_start"], bucket),
-                 event_name=r["event_name"], n=int(r["n"]), avg_neutrality=num(r["avg_neutrality"]),
-                 loaded=int(r["loaded"] or 0), partisan=int(r["partisan"] or 0)) for r in rows]
-
-
 DEFAULT_TERMS = ["vapaussota", "sisällissota", "kansalaissota", "punakapina", "luokkasota", "veljessota"]
-
-
-def term_drift(conn, page_id: int, terms: list[str] | None = None, bucket: str = "month") -> list[dict]:
-    terms = [t.strip().lower() for t in (terms or DEFAULT_TERMS) if t.strip()][:12]
-    idx = range(len(terms))
-    params = {"page_id": page_id, **{f"term_{i}": t for i, t in enumerate(terms)}}
-    # Byte-wise LOCATE on lowercased text: 2x faster than LIKE under utf8mb4_unicode_ci, same counts.
-    rows = _rows(conn, "term_drift", params, months=STEP_DELTA[bucket],
-                 flag_columns="".join(f", LOCATE(%(term_{i})s, CAST(LOWER(text) AS BINARY)) > 0 AS t_{i}" for i in idx),
-                 sum_columns="".join(f", SUM(d * t_{i}) AS t_{i}" for i in idx),
-                 run_columns="".join(f", SUM(COALESCE(delta.t_{i}, 0)) OVER w AS t_{i}" for i in idx))
-    return [dict(period=_period_label(r["period_start"], bucket), period_end=_period_end(r["period_start"], bucket),
-                 sentences=int(r["sentences"] or 0), terms={t: int(r[f"t_{i}"] or 0) for i, t in enumerate(terms)})
-            for r in rows]
 
 
 def revisions(conn, page_id: int) -> list[dict]:
@@ -181,17 +145,6 @@ def revisions(conn, page_id: int) -> list[dict]:
                  anonymous=bool(r["anonymous"]), comment=r["comment"], minor=bool(r["minor"]),
                  n_sentences=r["n_sentences"], is_revert=bool(r["is_revert"]))
             for r in _rows(conn, "revisions", {"page_id": page_id})]
-
-
-def revision(conn, rev_id: int) -> dict:
-    rows = _rows(conn, "revision", {"rev_id": rev_id})
-    if not rows:
-        raise NotFound(f"revision {rev_id} not found")
-    r = rows[0]
-    return dict(rev_id=r["rev_id"], page_id=r["page_id"], title=r["title"], timestamp=iso(r["ts"]),
-                until=iso(r["ts_end"]), editor=r["editor"], anonymous=bool(r["anonymous"]),
-                comment=r["comment"], minor=bool(r["minor"]), n_sentences=r["n_sentences"],
-                url=f"https://fi.wikipedia.org/?oldid={r['rev_id']}")
 
 
 def sentence_history(conn, page_id: int, sent_hash: str) -> list[dict]:
@@ -226,67 +179,6 @@ def about(conn, page_id: int, when, frm: int, to: int) -> list[dict]:
                  event_to=r["event_to"].year - 1) for r in rows]
 
 
-def about_all(conn, when, frm: int, to: int, limit: int = 50) -> list[dict]:
-    lo, hi = _year_range(frm, to)
-    rows = _rows(conn, "about_all", {"ts": moment(when), "from": lo, "to": hi, "limit": limit})
-    return [dict(page_id=r["page_id"], title=r["title"], sentences=r["sentences"],
-                 sample=(r["sample"] or "").split("\n")) for r in rows]
-
-
 # --- the globe -----------------------------------------------------------------------------------
 
-def map_points(conn) -> list[dict]:
-    rows = _rows(conn, "map", {})
-    out = []
-    for r in rows:
-        revisions, reverts, returns = int(r["revisions"]), int(r["reverts"] or 0), int(r["returns"] or 0)
-        out.append(dict(page_id=r["page_id"], title=r["title"], lat=r["lat"], lon=r["lon"],
-                        source=r["source"], revisions=revisions, reverts=reverts, returns=returns,
-                        churn=round(float(r["churn"] or 0), 2), n_sentences=r["n_sentences"],
-                        contested=returns + reverts, first_rev=iso(r["first_rev"]),
-                        last_rev=iso(r["last_rev"])))
-    return out
-
-
-def near(conn, lat: float, lon: float, deg: float = 1.0, limit: int = 10) -> list[dict]:
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise ValueError("lat/lon out of range")
-    rows = _rows(conn, "near", {"lat": lat, "lon": lon, "deg": min(max(deg, 0.05), 20), "limit": limit})
-    return [dict(page_id=r["page_id"], title=r["title"], lat=r["lat"], lon=r["lon"],
-                 source=r["source"], km=num(r["km"])) for r in rows]
-
-
 # --- /stats ------------------------------------------------------------------------------------
-
-def _p95(xs: list[float]) -> float:
-    xs = sorted(xs)
-    return round(xs[min(len(xs) - 1, int(0.95 * len(xs) + 0.999) - 1)], 2)
-
-
-def stats(conn, dataset: str, runs: int = 5) -> dict:
-    counts = _rows(conn, "stats_counts", {})[0]
-    scored_by = {r["model"]: int(r["n"]) for r in _rows(conn, "stats_models", {})}
-    out = dict(dataset=dataset, **{k: int(v or 0) for k, v in counts.items()}, query_ms={},
-               sample_article=None, scored_by=scored_by)
-    top = articles(conn, "", 1)
-    if not top:
-        return out
-    a = top[0]
-    out["sample_article"] = dict(page_id=a["page_id"], title=a["title"], revisions=a["revisions"])
-    mid = "2012-06-01"
-    bench = {
-        "as_of": lambda: as_of(conn, a["page_id"], max(mid + "T00:00:00Z", a["first_rev"])),
-        "diff": lambda: diff(conn, a["page_id"], max("2008-01-01T00:00:00Z", a["first_rev"]), None),
-        "contested": lambda: contested(conn, a["page_id"]),
-        "edit_wars": lambda: edit_wars(conn, a["page_id"], 20),
-        "drift": lambda: drift(conn, a["page_id"], "month"),
-        "term_drift": lambda: term_drift(conn, a["page_id"], None, "month"),
-    }
-    for name, fn in bench.items():
-        times = []
-        for _ in range(runs):
-            t = time.perf_counter()
-            fn()
-            times.append((time.perf_counter() - t) * 1000)
-        out["query_ms"][name] = dict(p95=_p95(times), median=round(sorted(times)[len(times) // 2], 2))
-    return out

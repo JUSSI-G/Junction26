@@ -21,8 +21,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import DB_ERRORS, db_error, pool
-from api.places import render
+from api.db import DB_ERRORS, db_error, pool, render
 from common import embed
 from common.db import ROOT
 from ingest.load_judgements import PRIMARY_MODEL
