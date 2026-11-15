@@ -16,10 +16,11 @@ tables) · Best Use of Gemma · Verda Compute track*
 
 ## What it does
 
-An article about the Finnish Civil War exists in Finnish, Swedish and English, but the three versions
-are written by different people and drift apart: a date differs, a paragraph exists in only one
-language, one version calls it a civil war and another a war of liberation. AikaKone finds these
-problems across **2,919 articles** and takes an editor straight to them.
+The same article exists in Finnish, Swedish and English, but the three versions are written by
+different people and drift apart. The Tavastians (*Hämäläiset*) "are a people" in Finnish but "were a
+tribe" in Swedish and English; the Finnish article on the 1918 civil war gives the date of
+Mannerheim's resignation as 27 May, the English one 25 May; whole paragraphs exist in only one
+language. AikaKone finds these problems across **2,919 articles** and takes an editor straight to them.
 
 1. **Worklist.** Every article that exists in all three languages, ranked by how differently the
    versions tell it, how much content is missing, how many possible contradictions Gemma found, and how
@@ -53,7 +54,8 @@ Every view shows the exact MariaDB SQL behind it (the **SQL** button).
 | **Data** | 19,742 Finnish articles with **862,076 versions** (2003–2026), loaded with their real save times. Current fi / sv / en text for 29,460 articles; **2,919 topics in all three languages** |
 | **Vectors** | 29,460 article vectors and **358,553 sentence vectors** (bge-m3, 1,024 dimensions) in MariaDB `VECTOR` columns with HNSW indexes |
 | **GPU** | All sentences embedded on a Verda A100 in **124 s (2,892 sentences/s, €0.07)**: ~445× the laptop CPU, which would have needed ~15 hours |
-| **LLM** | Gemma 3 27B judged **7,401 sentence pairs** on Verda (vLLM, 3.3 pairs/s, **€1.34**). Gemma 3 12B rechecked its 269 contradictions as a second opinion; the two models agree on 47 |
+| **LLM** | Gemma 3 27B judged **7,399 sentence pairs** on Verda (7,401 sent, 2 failed; vLLM, 3.3 pairs/s, **€1.34**). Gemma 3 12B rechecked its 269 contradictions as a second opinion; the two models agree on 47 |
+| **Privacy** | Open models (bge-m3, Gemma) self-hosted on a European GPU (Verda): no text was sent to a third-party AI API |
 | **Speed** | Every step of the demo responds in under half a second: semantic search ~300 ms including the CPU embedding of the query, similar articles ~30 ms, a map redraw < 2 ms |
 
 ## How it works
@@ -135,8 +137,9 @@ ORDER BY lives DESC;
 ```
 
 Also used: `FOR SYSTEM_TIME AS OF` (the article on any date), `FOR SYSTEM_TIME FROM … TO` (which place
-an article linked most in a year), an application-time `PERIOD` (what the article said *then* about
-events of *which years*), and window functions throughout.
+an article linked most in a year), an application-time `PERIOD FOR event_time` (bitemporal: the "About
+events in 1917–1918" filter in the *Article on a date* view shows what the article said *then* about
+events of *those years*), and window functions throughout.
 
 ## Results, honestly
 
@@ -144,14 +147,19 @@ events of *which years*), and window functions throughout.
   Contradiction precision is the weak point: about half of single-model contradictions are false alarms,
   typically two sentences about different scopes (combat deaths vs all deaths). So the app never states
   a contradiction as fact: it says **"Possible contradiction, check the sources"**, and the
-  contradictions both models agree on come first. On the hero article, agreement raised precision from
-  ~47 % to ~75 %.
+  contradictions both models agree on come first. On the hero article, checked by hand, 7 of the 27B's
+  15 contradictions were real (47 %) and **3 of the 4** that both models agreed on: a small sample, but
+  agreement is the better signal.
 - **Coverage:** Gemma judged the 301 most urgent articles for the demo (the top 300 of the ranking at
   the time, plus the Sauli Niinistö article); the rest say "not judged in demo".
 - **The top of the worklist is real:** *Hämäläiset* is "a people" in Finnish but "a tribe" (past tense)
   in Swedish and English; *Viipurin linna* starts from a Karelian trading post in Finnish and from the
   Swedish founding in 1293 in the others; the volunteer count for the *Heimosodat* differs (≈9,000 vs
   ≈10,000).
+- **Border places dominate the top:** *Uhtua*, *Kalastajasaarento* and *Karjalankannas* are places on
+  the Finnish–Russian border. Each language tells the place's history from its own country's present:
+  the Finnish articles tell the Finnish past (the village's history, Petsamo, the municipalities ceded
+  in 1944), while the English ones describe today's Russian town, peninsula and isthmus.
 - **Map positions:** two thirds of the positions are inferred: the place the article links to most.
 
 The full build log, with every decision and measurement, is in [NOTES.md](NOTES.md); the GPU and
