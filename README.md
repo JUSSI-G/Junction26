@@ -12,6 +12,10 @@ tables) · Best Use of Gemma · Verda Compute track*
 
 ![The worklist: articles ranked by language differences, missing content, Gemma's possible contradictions and edit wars](docs/screenshots/demo-1-worklist.png)
 
+### ▶ [Watch the demo video (1 min 46 s)](docs/demo/aikakone-demo.webm)
+
+[![Watch the demo: AikaKone in 1 min 46 s, worklist → article → map](docs/demo/demo-video-thumbnail.png)](docs/demo/aikakone-demo.webm)
+
 </div>
 
 ## What it does
@@ -193,7 +197,7 @@ python start.py        # checks MariaDB, builds the web app if needed, serves ht
 
 Tests: `python -m pytest`. A browser run of the whole demo, with screenshots and timings:
 `cd web && npm run demo-flow`. A captioned demo video (WebM, 1920×1080) of the same path: `cd web && npm run demo-video`
-(saved as `data/aikakone-demo.webm`).
+(saved as `data/aikakone-demo.webm`; the one in the README is `docs/demo/aikakone-demo.webm`).
 
 ## Project layout
 
