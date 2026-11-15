@@ -192,7 +192,8 @@ python start.py        # checks MariaDB, builds the web app if needed, serves ht
 | Worklist scores | `python -m db.build_divergence` |
 
 Tests: `python -m pytest`. A browser run of the whole demo, with screenshots and timings:
-`cd web && npm run demo-flow`.
+`cd web && npm run demo-flow`. A captioned demo video (WebM, 1920×1080) of the same path: `cd web && npm run demo-video`
+(saved as `data/aikakone-demo.webm`).
 
 ## Project layout
 

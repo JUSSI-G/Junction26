@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "demo-flow": "node scripts/demo-flow.mjs"
+    "demo-flow": "node scripts/demo-flow.mjs",
+    "demo-video": "node scripts/demo-video.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
