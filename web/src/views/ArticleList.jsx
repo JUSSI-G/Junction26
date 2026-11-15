@@ -101,7 +101,7 @@ export default function ArticleList({ res, filter, onOpen }) {
                           title={`Finnish sentences missing: ${r.missing_sv} in Swedish, ${r.missing_en} in English (of ${r.sentences.fi})`} />}
                 </td>
                 <td className="contra">
-                  {r.contradictions == null ? <span className="muted small" title="Gemma has not judged this article's sentence pairs yet">not judged</span> : (
+                  {r.contradictions == null ? <span className="muted small" title="For the demo, Gemma (on Verda) judged the 301 most urgent articles. The rest can be judged the same way.">not judged in demo</span> : (
                     <>
                       <b className={r.contradictions ? 'n' : 'zero'} title={`Gemma judged ${r.judged_pairs} sentence pairs`}>{r.contradictions}</b>
                       {r.contradictions_agreed > 0 && <span className="agreebadge" title="Two models (Gemma 27B and 12B) agree on these">{r.contradictions_agreed} agree</span>}

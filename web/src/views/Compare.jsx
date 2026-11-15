@@ -163,7 +163,7 @@ function Cell({ row, lang }) {
             <React.Fragment key={x.model}>
               <b>{x.label === 'same' ? 'Same claim' : STATUS[x.label]?.label || x.label}</b> — {x.reason}<small>{x.model}</small>
             </React.Fragment>))
-             : (<><b>Not judged yet</b> — matched by embedding only (distance {c.distance?.toFixed(3)}).</>)}
+             : (<><b>Not judged in the demo</b> — matched by embedding only (distance {c.distance?.toFixed(3)}). For the demo, Gemma judged the 301 most urgent articles.</>)}
         </span>
       )}
     </div>
