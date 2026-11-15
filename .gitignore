@@ -1,4 +1,4 @@
-# secrets and local data
+# secrets and local data (datasets, Verda results, logs)
 .env
 data/
 reference/
@@ -9,12 +9,16 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# frontends: web/ (React, Kristian's views) and web/globe/ (the place globe)
+# web app
 node_modules/
-web/node_modules/
 web/dist/
-web/globe/dist/
 
+# editors and OS
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 *.part
 
 # a stray nested repo (a photo), not part of the project
