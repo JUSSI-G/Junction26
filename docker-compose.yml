@@ -1,4 +1,4 @@
-# MariaDB for Contested History.  Local dev:  docker compose up -d --wait
+# MariaDB for AikaKone.  Local dev:  docker compose up -d --wait
 # Full deploy (e.g. a Verda CPU instance):    docker compose --profile app up -d --build
 # Tables are created by `python -m common.schema` (make db / the app container does it), not
 # mounted into the container: Docker Desktop can't always see files under OneDrive/iCloud paths.

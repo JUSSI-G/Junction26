@@ -41,8 +41,6 @@ def views(conn, page_id: int, first_rev: str) -> dict:
         "diff": lambda: H.diff(conn, page_id, first_rev, None),
         "contested": lambda: H.contested(conn, page_id),
         "edit_wars": lambda: H.edit_wars(conn, page_id, 20),
-        "drift (month)": lambda: H.drift(conn, page_id, "month"),
-        "term_drift (month)": lambda: H.term_drift(conn, page_id, None, "month"),
         "about 1917–1918": lambda: H.about(conn, page_id, None, 1917, 1918),
     }
 

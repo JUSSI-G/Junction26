@@ -1,100 +1,62 @@
-# Contested History
+# AikaKone
 
-> **Combined app (branch `combined`, mid-merge).** This repository now holds two builds in one
-> backend: *Contested History* (below: sentence-level history) and *Rewritten* (places and place
-> links over time, the globe; see `NOTES.md`). One schema (`db/schema.sql`), one connection module
-> (`common/db.py`), one API (`uvicorn api.main:app`): `/` serves the place globe, `/contested/` the
-> React views. Layout, conflicts and next steps: [docs/merge-plan.md](docs/merge-plan.md).
-> Local setup on the dev PC: MariaDB 13 service on port 3307 (`.env`, see `.env.example`), no Docker.
+**Finnish, Swedish and English Wikipedia on Finland's history: where the versions differ, and where
+editors fight.** A tool for Wikipedia editors.
 
-**Which parts of Finnish history does Wikipedia keep rewriting, sentence by sentence?**
+Junction 2026 · MariaDB *Wikipedia Through Time* (vector search **and** system-versioned tables) ·
+Best Use of Gemma · Verda Compute Track
 
-Junction 2026 · MariaDB *Wikipedia Through Time* (SVT track) · Best Use of Gemma · Best Use of Verda
+1. **Worklist:** 2,919 articles that exist in all three languages, ranked by how differently the
+   versions tell it, what content is missing, Gemma's possible contradictions, and edit wars in the
+   Finnish history. Narrow it with a **semantic search** (bge-m3 + `VEC_DISTANCE`, so it also finds
+   articles that never use the word), **topic chips** (a Finnish category and its subcategories,
+   `WITH RECURSIVE`) or a title search.
+2. **Article page:**
+   - **Languages:** fi / sv / en sentence by sentence (bge-m3 sentence vectors, mutual best matches),
+     with Gemma's possible contradictions on top, the ones two models agree on first.
+   - **Edit wars:** the Finnish article's history from system-versioned sentences: sentences that
+     were removed and came back, how contested each sentence is, the article as of any date
+     (`FOR SYSTEM_TIME AS OF`).
+   - **"Edit in Wikipedia":** opens Wikipedia's own editor. A human makes the edit.
+3. **Map:** the same articles at their places; a click draws lines to the 10 most similar articles.
 
-We don't version articles, we version **sentences**. Every sentence of every revision of a
-Finnish Wikipedia article is a row in a MariaDB `WITH SYSTEM VERSIONING` table, stamped with the
-real Wikipedia edit time. Edit wars, rewritten history and point-in-time views then become plain
-SQL over `FOR SYSTEM_TIME`.
+Every view shows its MariaDB SQL (the **SQL** button, bottom left).
 
-Hero article: *Suomen sisällissota* (the Finnish Civil War of 1918), whose very name is contested
-(*sisällissota / vapaussota / punakapina / kansalaissota*). 3,345 revisions from 2003–2026,
-8,089 sentence lives. The intro sentence that names the war has been removed and put back 19 times.
+## Run it
 
-## Views
-
-| | View | For | MariaDB feature |
-|---|---|---|---|
-| V0 | **Globe**: every article with a place, as a heat map of how contested its history is; click → the article through time | everyone | `POINT` + `SPATIAL INDEX`, `MBRContains` + `ST_Distance_Sphere` ("nearby"), window functions over `FOR SYSTEM_TIME ALL` |
-| V1 | **Time slider**: the article on any date, and what was added/removed between two dates | readers | `FOR SYSTEM_TIME AS OF`, two snapshots anti-joined |
-| V2 | **Contested map**: today's text heat-coloured by rewrites + returns; click a sentence for every earlier wording | editors | `WITH RECURSIVE` over `FOR SYSTEM_TIME ALL` (rewrite chains) |
-| V3 | **Edit wars**: sentences that left and came back, with who added and who removed them each time | editors | `GROUP BY … HAVING COUNT(*) > 1` over `FOR SYSTEM_TIME ALL` |
-| V1+ | **Bitemporal filter** in the time slider: what the article said *then* about events of *years Y–Z*; also `/api/about` across all of Wikipedia | readers | system time × application-time `PERIOD FOR event_time` |
-| V4 | **Narrative drift**: which name the article uses, and how neutral it reads, at the end of every month/quarter/year; click → V1 | both | +1/−1 sweep with `SUM() OVER` over history, joined to Gemma's scores |
-
-## Quick start
-
-Needs Docker, Python 3.11+, Node 18+. No `make` on Windows? Use `python dev.py <task>` instead; it's the same thing.
+Needs MariaDB 11.8+ (vector support), Python 3.11+, Node 18+. Settings in `.env` (see `.env.example`).
 
 ```bash
 pip install -r requirements.txt
-python dev.py demo          # MariaDB + synthetic demo article + baseline scores + web build + API
-# open http://localhost:8000
+npm --prefix web install && npm --prefix web run build
+python -m uvicorn api.main:app --port 8000      # http://localhost:8000
 ```
 
-Real data (dataset M from [MariaDB/mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets)):
+## Data pipeline
 
-```bash
-python -m ingest.download 01                                  # 20 MB, holds page 1150
-python -m ingest.replay --dataset data/m/versions-01.parquet --pages 1150   # ~80 s
-python -m scoring.score                                       # keyword baseline, or Gemma (below)
-python dev.py api                                             # :8000
-python dev.py web                                             # :5173, hot reload
-```
-
-| Task | Command |
+| Step | Command |
 |---|---|
-| Globe data (2,760 placeable articles) | `python -m ingest.download --all` then `python -m ingest.geo` then `GEO_TOP=300 python -m ingest.replay --dataset geo --workers 6` |
-| Bitemporal event periods | `python -m ingest.event_time` (after any load) |
-| Scale numbers for the slides | `python -m db.benchmark --record` |
-| Deploy (Verda CPU / any Docker host) | `docker compose --profile app up -d --build`, then load with `docker compose run --rm app python -m ingest.replay --dataset large --workers 8` |
-| Frontend without a backend | `python dev.py web-mock` (uses `web/mocks/*.json`) |
-| Regenerate mocks | `python dev.py mocks` |
-| Tests (27, need MariaDB) | `python dev.py test` |
-| Bigger datasets | `python dev.py ingest small` · `ingest medium` · `ingest large` |
-| Gemma scoring | `SCORING_URL=http://<vllm>/v1 GEMMA_MODEL=google/gemma-3-12b-it python -m scoring.score --backend llm` |
-| Gemma eval | `python -m scoring.eval --backend llm` (after labelling `scoring/eval/labels.csv`) |
+| Dataset M (19,742 Finnish articles, 862,076 versions, system-versioned) | `python -m ingest.load_parquet` |
+| Sentence history for the edit-war views | `python -m ingest.replay --sentences-only` |
+| Dataset S (current fi / sv / en text + bge-m3 article vectors) | `python -m ingest.load_lang` |
+| Category tree for the topic chips | `python -m ingest.load_categories` |
+| Sentence vectors (bge-m3 on a Verda GPU, 358,553 sentences) | `python -m ingest.load_verda_sentences` |
+| Sentence matching (mutual best matches, threshold 0.418) | `python -m db.lang_match --workers 8` |
+| Gemma judgements (27B on Verda, 12B second opinion) | `python -m ingest.load_judgements` |
+| Map positions | `python -m db.build_topic_place` |
+| Worklist scores | `python -m db.build_divergence` |
+| Map coastlines (Natural Earth 1:10m) | `python scripts/make_world_map.py <countries.geojson> <lakes.geojson>` |
 
-API docs: http://localhost:8000/docs
+Tests: `python -m pytest`. Demo run with screenshots and timings: `cd web && npm run demo-flow`.
 
-## How it works
+## Docs
 
-```
-dataset M (parquet: every version, wikitext, editor, time)
-   │  ingest/load_articles.py   stream pages, skip row groups by page_id statistics
-   │  ingest/sentences.py       wikitext → text → Finnish sentences → normalised SHA-256
-   │  ingest/history.py         sentence lives per article; rewrite links (prev_hash); vandalism filter
-   ▼  ingest/replay.py          SET system_versioning_insert_history = 1; INSERT … row_start, row_end
-MariaDB  article            (one row per article, every revision = a history row)
-         article_sentence   (one row per sentence life; same hash, several lives = edit war)
-         sentence_score     (Gemma: event name, tone, neutrality, loaded terms)
-   │  db/queries/*.sql          one file per view
-   ▼  api/ (FastAPI)  →  web/ (React + Vite + Recharts)
-```
-
-Key choices, measured numbers and the reasons behind them: [docs/decisions.md](docs/decisions.md),
-[docs/numbers.md](docs/numbers.md). Verda runbook: [docs/process-log.md](docs/process-log.md).
-
-## Team
-
-| Role | Owns |
-|---|---|
-| P1 Backend | `db/`, `api/`, `common/` |
-| P2 Data | `ingest/` |
-| P3 AI | `scoring/`, `docs/process-log.md` |
-| P4 Frontend + pitch | `web/`, `pitch/` |
+- [NOTES.md](NOTES.md): the build log, with every decision and measured number
+- [docs/process-log.md](docs/process-log.md): the Verda runs (GPU, time, cost)
+- [docs/contracts.md](docs/contracts.md): the data formats between the team's parts
+- [docs/decisions.md](docs/decisions.md), [docs/numbers.md](docs/numbers.md)
 
 ## Licence
 
-Code: TODO, pick a licence and add a LICENSE file before submission. Wikipedia text and anything derived from it: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/),
-credit Wikipedia and its authors. `ingest/lists/small.tsv` is from
-[MariaDB/mariadb-system-versioning-wikipedia](https://github.com/MariaDB/mariadb-system-versioning-wikipedia) (MIT).
+Wikipedia text and anything derived from it: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/),
+credit Wikipedia and its authors. Map data: Natural Earth (public domain).

@@ -82,7 +82,7 @@ export default function App() {
     <div className={`app app-${route.view}`}>
       <header className="top">
         <a className="brand" href={hrefFor({ view: 'list' }, filter)} title="Back to the worklist">
-          <h1>Contested History</h1>
+          <h1>AikaKone</h1>
         </a>
         <span className="tag">Finnish, Swedish and English Wikipedia on Finland's history: where the versions differ, and where editors fight</span>
         <nav className="mainnav">

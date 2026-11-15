@@ -80,8 +80,8 @@ today's English/Swedish, e.g. "did the Finnish article catch up with the English
 - `scoring/` Gemma: pair judging on Verda (`judge_pairs.py`, `eval_pairs.py`) and sentence scoring (`score.py`).
 - `web/` the React app (Vite): `src/views/` (ArticleList, ArticlePage, Compare, MapView + `map/`, Kristian's
   EditWars / ContestedMap / TimeSlider). `web/scripts/demo-flow.mjs` = the Playwright demo run.
-- Docs: `NOTES.md` (log), `docs/merge-plan.md`, `docs/decisions.md`, `docs/numbers.md`,
-  `docs/process-log.md` (Verda), `docs/findings.md`.
+- Docs: `NOTES.md` (log), `docs/contracts.md`, `docs/decisions.md`, `docs/numbers.md`,
+  `docs/process-log.md` (Verda). Demo screenshots: `docs/screenshots/` (`web/scripts/demo-flow.mjs`).
 
 ## Existing tables (don't break them)
 

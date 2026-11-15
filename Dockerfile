@@ -1,4 +1,4 @@
-# Contested History: API + built frontend in one image. MariaDB runs as its own service
+# AikaKone: API + built frontend in one image. MariaDB runs as its own service
 # (docker-compose.yml). On a Verda CPU instance:  docker compose --profile app up -d --build
 
 FROM node:20-slim AS web

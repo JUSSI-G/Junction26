@@ -1,5 +1,5 @@
 {
-  "name": "contested-history",
+  "name": "aikakone",
   "private": true,
   "description": "Convenience scripts so npm works from the repo root; the frontend lives in web/.",
   "scripts": {

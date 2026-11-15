@@ -24,7 +24,7 @@ const shot = async (page, name) => { await page.screenshot({ path: path.join(OUT
 const fail = (m) => { console.error('FAIL:', m); process.exitCode = 1 }
 
 const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge' })
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'light' })
 page.on('pageerror', (e) => fail(`page error: ${e.message}`))
 
 // 0. landing = the worklist
@@ -71,6 +71,13 @@ const agreed = await page.$$eval('.contras li', (li) => li.map((x) => x.classLis
 console.log(`  contradictions panel: ${agreed.length}, both models agree: ${agreed.filter(Boolean).length}`)
 if (agreed.length && !agreed[0]) fail('"both models agree" not first')
 await shot(page, '4-article-languages')
+// click the first contradiction (both models agree): its row and the fix panel with "Edit in Wikipedia"
+await page.click('.contras li')
+await page.waitForSelector('.fix')
+await page.evaluate(() => window.scrollBy(0, -70))
+await page.waitForTimeout(300)
+await shot(page, '4b-contradiction-fix')
+await page.evaluate(() => window.scrollTo(0, 0))
 
 // 3. Edit wars tab
 await time('Edit wars tab', async () => {
@@ -99,7 +106,7 @@ for (const mode of ['2d']) {
     await page.waitForSelector('.mapcanvas canvas')
   })
   await page.waitForTimeout(mode === '3d' ? 2500 : 900)      // camera flight / fit animation
-  await shot(page, `8-${mode}-map-search`)
+  await shot(page, '8-map-search')
 
   // where the map drew the mark holding the civil war (alone, or in a blob), then a real hover and click
   const where = () => page.evaluate((m) => {
@@ -120,14 +127,14 @@ for (const mode of ['2d']) {
       if (tip && (tip === 'Suomen sisällissota' || (p.n > 1 && tip.includes(`${p.n} articles`)))) { found = { x: box.x + p.x + dx, y: box.y + p.y + dy }; break }
     }
   })
-  await shot(page, `8b-${mode}-map-hover`)
+  await shot(page, '8b-map-hover')
   if (!found) { fail(`${tag}: the civil war's mark not found`); continue }
   if (p.n > 1) {
     await time(`${tag}: click the blob -> list of its articles`, async () => {
       await page.mouse.click(found.x, found.y)
       await page.waitForSelector('.mapcard .bloblist li')
     })
-    await shot(page, `8c-${mode}-map-blob`)
+    await shot(page, '8c-map-blob')
   }
   await time(`${tag}: pick the civil war -> 10 similar articles + lines`, async () => {
     if (p.n > 1) await page.click('.bloblist button:has-text("Suomen sisällissota")')
@@ -135,7 +142,7 @@ for (const mode of ['2d']) {
     await page.waitForSelector('.mapcard .simlist li')
   })
   await page.waitForTimeout(mode === '3d' ? 1500 : 600)
-  await shot(page, `9-${mode}-map-dot`)
+  await shot(page, '9-map-pick')
   if (mode === '2d') console.log(`  2D frame time: ${await page.$eval('.maplegend', (e) => e.innerText.match(/frame ([\d.]+) ms/)?.[1])} ms`)
   else console.log(`  3D frames/s (software WebGL): ${await page.evaluate(() => new Promise((ok) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(f); else ok((n / 2).toFixed(0)) }; requestAnimationFrame(f) }))}`)
   await time(`${tag}: map card name -> article page`, async () => {
@@ -148,7 +155,7 @@ for (const mode of ['2d']) {
     await page.waitForFunction(() => document.querySelector('.maplegend')?.innerText.match(/\d[\d,\s]{3,} articles at/))
   })
   await page.waitForTimeout(mode === '3d' ? 2500 : 900)
-  await shot(page, `10-${mode}-map-all`)
+  await shot(page, '10-map-all')
 }
 
 console.log('\ntimings (ms):', JSON.stringify(Object.fromEntries(timings)))

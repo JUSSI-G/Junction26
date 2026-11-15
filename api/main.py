@@ -29,7 +29,7 @@ from api.explore import router as explore_router
 from common import embed
 from common.db import ROOT
 
-app = FastAPI(title="Contested History", version="3.0",
+app = FastAPI(title="AikaKone", version="3.0",
               description="Finnish, Swedish and English Wikipedia on Finland's history: where the versions "
                           "differ, and where editors fight. MariaDB vectors + system-versioned tables.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
