@@ -1371,3 +1371,21 @@ Compared with a snapshot taken before the reload:
   blue on the light 2D map. `linesFor()` in `map/shared.js` builds them for both.
 - **Demo flow:** hover the blob → click → list → pick the civil war → 10 similar + lines → card →
   article. Passes in 3D and 2D; in 2D the blob click takes 6 ms and the pick 56 ms.
+
+### Map: flat 3D dots like the 2D map, no overlapping marks (2026-11-15)
+- **3D marks:** flat discs with a white outline lying on the surface (globe.gl's object layer:
+  `CircleGeometry` + `RingGeometry`, `objectFacesSurface`). They replace the cylinder points, so the
+  globe's dots look like the 2D map's.
+  - **Size:** `sizeOf()` in `map/shared.js`, the same rule on both maps. The size on screen stays about
+    3–4 px whatever the zoom (0.2 × camera altitude, in degrees).
+  - **Colours:** parsed as sRGB, the same as 2D; `new Color(r, g, b)` had treated them as linear and
+    washed them out.
+- **No overlaps:** zoom-dependent clustering (`useClusters()`). Each view reports how big one article is
+  on the ground at its zoom (2D: px → km; 3D: degrees → km). Marks whose circles would touch merge into
+  one blob, biggest first, repeated until nothing touches; zooming in splits them back into places.
+  - **List and selection:** a merged blob is titled "Helsinki and 6 places near it", and its list shows
+    each article's place. The selection follows its place through re-clustering.
+  - **Fitting:** the camera fits to the places, not the clusters. Fitting to clusters had flown the 3D
+    camera to 35° S, because after heavy merging most of the remaining marks are scattered singles.
+- **Demo flow** passes in both modes (the civil war is in a blob of 4–7 depending on the zoom; picked
+  from the list).

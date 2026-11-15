@@ -148,3 +148,4 @@ td.contra b.zero { color: var(--muted); font-weight: 500; }
 .bloblist a:hover { color: var(--accent); }
 .globecount { font: 700 11px/1 var(--sans); color: #fff; transform: translate(-50%, -50%); pointer-events: none;
   text-shadow: 0 0 3px rgba(0,0,0,.6); }
+.bloblist button em { font-style: normal; color: var(--muted); font-size: 12px; }

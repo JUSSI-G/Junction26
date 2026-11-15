@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { useJson, fitSet, color, css, ease, blobScale } from './shared.js'
+import { useJson, fitSet, color, css, ease, sizeOf } from './shared.js'
 
 // The 2D world map, the light option for lower-end devices: one canvas, Equal Earth projection (the whole
 // world without the polar blow-up; Finland stays recognisable). Coastlines, borders and lakes (Natural
@@ -20,6 +20,9 @@ const CITIES = [['Helsinki', 24.94, 60.17], ['Turku', 22.27, 60.45], ['Tampere',
   ['Riga', 24.11, 56.95], ['Kööpenhamina', 12.57, 55.68], ['Moskova', 37.62, 55.75], ['Petroskoi', 34.35, 61.79],
   ['Berliini', 13.4, 52.52], ['Lontoo', -0.13, 51.51], ['Pariisi', 2.35, 48.86], ['Rooma', 12.5, 41.9]]
 export const LINE_RGB = '47, 93, 138'
+// km on the ground per projection unit, near Finland (for the clustering, which works in km)
+const KM_PER_UNIT = 111.2 / Math.abs(project(25, 61)[1] - project(25, 60)[1])
+const dotPx = (s) => Math.max(2.4, Math.min(6, 3 + 0.75 * (Math.log2(s / 400) - 2)))   // one article, px
 
 const box = (pts) => {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1])
@@ -33,21 +36,20 @@ function fit([x0, y0, x1, y1], [w, h], pad = 60) {
   return { s, tx: w / 2 - ((x0 + x1) / 2) * s, ty: h / 2 - ((y0 + y1) / 2) * s }
 }
 
-export default function Map2D({ marks, lines, focus, selKey, hoverKey, labels, semantic, onHover, onPick }) {
+export default function Map2D({ marks, fitKey, fitMarks, lines, focus, selKey, hoverKey, labels, semantic, onHover, onPick, onScale }) {
   const wrap = useRef(null), canvas = useRef(null)
   const geo = useJson('world.json')
   const st = useRef({ view: null, target: null, base: null, baseKey: '', marks: [], dirty: true, size: [0, 0], dpr: 1 })
   const s = st.current
-  Object.assign(s, { lines, focus, selKey, hoverKey, labels, semantic, geo, dirty: true })
+  Object.assign(s, { marks, lines, focus, selKey, hoverKey, labels, semantic, geo, dirty: true, onScale })
 
   useEffect(() => { window.__map = st.current }, [])     // the Playwright demo script reads mark positions
 
-  // fit to the filter's marks (always with Finland in view) when they change
+  // fit to the filter's marks (always with Finland in view) when the filter changes (not on re-clustering)
   useEffect(() => {
-    s.marks = marks
-    for (const m of marks) { [m.wx, m.wy] = project(m.lon, m.lat) }
     if (!s.size[0]) return
-    const pts = fitSet(marks).map((m) => [m.wx, m.wy])
+    // fit to the places (not the clusters: those depend on the zoom being fitted)
+    const pts = fitSet(fitMarks || marks).map((m) => project(m.lon, m.lat))
     const fin = lonlatBox(FINLAND)
     s.target = fit(box(pts.concat([[fin[0], fin[1]], [fin[2], fin[3]]])), s.size)
     const widest = fit(lonlatBox(WORLD), s.size, 10)
@@ -55,7 +57,7 @@ export default function Map2D({ marks, lines, focus, selKey, hoverKey, labels, s
     if (!s.view) s.view = { ...s.target }
     s.anim = { from: { ...s.view }, t0: performance.now() }
     s.dirty = true
-  }, [marks])
+  }, [fitKey])
 
   useEffect(() => {
     const c = canvas.current
@@ -206,23 +208,29 @@ function drawBase(s) {
   return b
 }
 
-export function markRadius(m, r0, semantic) {
-  const one = semantic && m.sim != null ? 2.5 + 9 * m.sim : r0
-  return m.n > 1 ? Math.max(one, r0 * blobScale(m.n)) : one
+// tell the view how big one article is on the ground at this zoom (it re-clusters), once the zoom settles
+function reportScale(s) {
+  if (s.anim || !s.onScale) return
+  const km = (dotPx(s.view.s) / s.view.s) * KM_PER_UNIT
+  if (s.lastKm && Math.abs(Math.log(km / s.lastKm)) < 0.08) return
+  s.lastKm = km
+  clearTimeout(s.scaleTimer)
+  s.scaleTimer = setTimeout(() => s.onScale(km), 120)
 }
 
 function draw(s, c) {
   if (!s.geo || !s.view) return
+  reportScale(s)
   const ctx = c.getContext('2d')
   const v = s.view
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.drawImage(drawBase(s), 0, 0)
   ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0)
-  const zoom = Math.log2(v.s / 400)
-  const r0 = Math.max(2.2, Math.min(6, 2.8 + 0.75 * (zoom - 2)))
+  const r0 = dotPx(v.s)
   for (const m of s.marks) {
+    if (m.wx == null) [m.wx, m.wy] = project(m.lon, m.lat)
     m.sx = m.wx * v.s + v.tx; m.sy = m.wy * v.s + v.ty
-    m.rad = markRadius(m, r0, s.semantic)
+    m.rad = r0 * sizeOf(m, s.semantic)
   }
   // lines to the most similar articles: bent, drawn in, thicker and darker = more similar
   const now = performance.now()

@@ -21,8 +21,13 @@ export const css = (name) => getComputedStyle(document.documentElement).getPrope
 export const ease = (x) => 1 - Math.pow(1 - x, 3)
 // 0..1 strength of a "most similar" line: thickness and opacity, the same rule on both maps
 export const lineStrength = (sim) => Math.max(0, Math.min(1, (sim - 0.6) / 0.3))
-// a blob's size relative to a single article: grows with the log of the count (Helsinki, 400 → ×6.4)
-export const blobScale = (n) => 1 + 0.9 * Math.log(n)
+// A mark's size relative to one article, the same on both maps: a blob grows with the log of its count
+// (Helsinki, 400 → ×7.6); with a semantic search a single article is sized by its similarity.
+export const blobScale = (n) => 1 + 1.1 * Math.log(n)
+export function sizeOf(m, semantic) {
+  const one = semantic && m.sim != null ? 0.8 + 3 * m.sim : 1
+  return m.n > 1 ? Math.max(one, blobScale(m.n)) : one
+}
 
 const cache = {}
 export function useJson(name) {           // web/public/<name>, fetched once per page load
@@ -75,6 +80,53 @@ export function useMarks(res, places, semantic) {
     marks.sort((a, b) => b.n - a.n || (semantic ? (a.sim ?? 0) - (b.sim ?? 0) : a.score - b.score))
     return { marks, markOf, unplaced }
   }, [res, places, semantic])
+}
+
+// Zoom-dependent clustering, so no two marks overlap: marks whose circles would touch at the current
+// zoom merge into one blob (biggest first, greedy, repeated until nothing touches). baseKm = the radius of
+// one article on the ground at this zoom (the views report it). Zoom in and blobs split back into places.
+//   cluster = a mark + {places: [place mark…], placeKeys: Set} (a single place keeps its own key)
+const KM_PER_DEG = 111.2
+function km(a, b) {
+  const dy = (a.lat - b.lat) * KM_PER_DEG
+  const dx = (a.lon - b.lon) * KM_PER_DEG * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180)
+  return Math.sqrt(dx * dx + dy * dy)
+}
+export function useClusters(marks, baseKm, semantic) {
+  return useMemo(() => {
+    let cl = marks.map((m) => ({ ...m, places: [m], placeKeys: new Set([m.key]) }))
+    const rad = (c) => baseKm * sizeOf(c, semantic)
+    for (let pass = 0; pass < 6; pass++) {
+      cl.sort((a, b) => b.n - a.n)
+      const out = []
+      let merged = false
+      for (const c of cl) {
+        const host = out.find((o) => km(o, c) < (rad(o) + rad(c)) * 0.92)
+        if (!host) { out.push(c); continue }
+        merged = true
+        host.places.push(...c.places)
+        for (const k of c.placeKeys) host.placeKeys.add(k)
+        host.items = host.items.concat(c.items)
+        host.n = host.items.length
+        host.score = Math.max(host.score, c.score)
+        host.sim = host.sim == null ? c.sim : Math.max(host.sim, c.sim ?? 0)
+        if (host.located !== c.located) host.located = 'mixed'
+        host.key = host.places.map((p) => p.key).sort().join('|')
+      }
+      cl = out
+      if (!merged) break
+    }
+    const markOf = new Map()
+    for (const c of cl) {
+      c.items.sort((a, b) => (semantic ? (b.sim ?? 0) - (a.sim ?? 0) : (b.r.score ?? 0) - (a.r.score ?? 0)))
+      c.place = c.places.length > 1 ? `${c.places[0].place} and ${c.places.length - 1} place${c.places.length > 2 ? 's' : ''} near it` : c.place
+      const placeOf = new Map(c.places.flatMap((p) => p.items.map((a) => [a.id, p.place])))
+      c.placeOf = placeOf
+      for (const a of c.items) markOf.set(a.id, c)
+    }
+    cl.sort((a, b) => b.n - a.n || (semantic ? (a.sim ?? 0) - (b.sim ?? 0) : a.score - b.score))
+    return { clusters: cl, markOf }
+  }, [marks, baseKm, semantic])
 }
 
 // The marks a view should fit to: the Nordic-Baltic ones when most are there.

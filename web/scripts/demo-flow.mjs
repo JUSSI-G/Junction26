@@ -108,8 +108,8 @@ for (const mode of ['3d', '2d']) {
   const where = () => page.evaluate((m) => {
     const has = (k) => k.items.some((a) => a.id === 'Q211855')
     if (m === '2d') { const k = window.__map.marks.find(has); return k && { x: k.sx, y: k.sy, n: k.n } }
-    const g = window.__globe, k = g.pointsData().find(has)
-    return k && { ...g.getScreenCoords(k.lat, k.lon, 0.0068), n: k.n }
+    const g = window.__globe, k = g.objectsData().find(has)
+    return k && { ...g.getScreenCoords(k.lat, k.lon, 0.0064), n: k.n }
   }, mode)
   const box = await page.$eval('.mapcanvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top } })
   let found = null

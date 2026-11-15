@@ -1,15 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Globe from 'globe.gl'
-import { useJson, HOME, fitSet, color } from './shared.js'
+import { CircleGeometry, RingGeometry, Group, Mesh, MeshBasicMaterial, Color } from 'three'
+import { useJson, HOME, fitSet, color, sizeOf } from './shared.js'
 
 // The 3D globe (the default; the 2D map is the light option). globe.gl / three.js, styled like the
 // original globe (web/globe): the dark earth texture with relief, a dark sky, the blue atmosphere; country
-// outlines from web/public/world3d.json on top, Finland highlighted. The same marks as the 2D map (one
-// article, or a blob of all the articles at one place) and the same lines: solid, low over the surface,
-// thicker and brighter = more similar, drawn in once.
+// outlines from web/public/world3d.json on top, Finland highlighted. The marks look like the 2D map's:
+// flat discs lying on the surface with a white outline, one per article or per blob (the views share the
+// clustering, so they never overlap), and the same lines: solid, low, thicker = more similar, drawn in once.
 const LINE = '150, 195, 255'           // the 2D map's line colour, lightened for the dark globe
+const UNITS_PER_DEG = (Math.PI / 180) * 100      // globe.gl's globe has radius 100
+const DISC = new CircleGeometry(1, 40)
+const RIM = new RingGeometry(1, 1.14, 40)
 
-export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, semantic, onHover, onPick, onFail }) {
+function rgba(str) {                     // 'rgba(r,g,b,a)' -> [Color, a]
+  const [r, g, b, a] = str.match(/[\d.]+/g).map(Number)
+  return [new Color(`rgb(${r},${g},${b})`), a]          // a CSS string = sRGB, as on the 2D map
+}
+
+export default function Map3D({ marks, fitKey, fitMarks, lines, focus, selKey, hoverKey, labels, semantic, onHover, onPick, onScale, onFail }) {
   const el = useRef(null)        // the wrapper (React's)
   const mount = useRef(null)     // the globe's own element: React renders nothing inside it
   const g = useRef(null)
@@ -19,7 +28,6 @@ export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, s
   props.current = { onHover, onPick }
   const [alt, setAlt] = useState(1.4)       // camera altitude, rounded: the mark size follows it
 
-  // create the globe once
   useEffect(() => {
     let globe
     try {
@@ -37,12 +45,19 @@ export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, s
       .polygonStrokeColor((f) => (f.properties.iso === 'FI' ? 'rgba(190,210,245,0.85)' : 'rgba(120,140,180,0.3)'))
       .polygonCapColor((f) => (f.properties.iso === 'FI' ? 'rgba(70,98,150,0.42)' : 'rgba(20,27,42,0.55)'))
       .polygonsTransitionDuration(0)
-      .pointLat('lat').pointLng('lon')
-      .pointResolution(16)
-      .pointsMerge(false)
-      .pointsTransitionDuration(0)
-      .onPointHover((m) => props.current.onHover(m || null, ...mouse.current))
-      .onPointClick((m) => props.current.onPick(m))
+      // marks: flat discs facing out from the surface
+      .objectLat('lat').objectLng('lon')
+      .objectFacesSurface(true)
+      .objectThreeObject((m) => {
+        const grp = new Group()
+        grp.add(new Mesh(DISC, new MeshBasicMaterial({ transparent: true, depthWrite: false })))
+        grp.add(new Mesh(RIM, new MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false })))
+        m.__obj = grp
+        paint(m)
+        return grp
+      })
+      .onObjectHover((m) => props.current.onHover(m || null, ...mouse.current))
+      .onObjectClick((m) => props.current.onPick(m))
       .onGlobeClick(() => props.current.onPick(null))
       .arcStartLat((a) => a.from.lat).arcStartLng((a) => a.from.lon)
       .arcEndLat((a) => a.lat).arcEndLng((a) => a.lon)
@@ -62,9 +77,9 @@ export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, s
     const ctl = globe.controls()
     ctl.autoRotate = false; ctl.enableDamping = true; ctl.dampingFactor = 0.12
     ctl.minDistance = 101 + 8; ctl.maxDistance = 900
-    ctl.addEventListener('end', () => {            // after a zoom, resize the marks
+    ctl.addEventListener('end', () => {            // after a zoom: resize the marks, re-cluster
       const a = globe.pointOfView().altitude
-      setAlt((cur) => (Math.abs(Math.log(a / cur)) > 0.15 ? a : cur))
+      setAlt((cur) => (Math.abs(Math.log(a / cur)) > 0.12 ? a : cur))
     })
     const ro = new ResizeObserver(() => {
       const r = el.current?.getBoundingClientRect()
@@ -83,30 +98,43 @@ export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, s
     })))
   }, [geo])
 
-  // marks: a size on the ground, so it follows the camera (smaller when you zoom in); a blob grows with
-  // its count; dim everything but the selection and its neighbours
-  const radius = Math.max(0.01, Math.min(0.16, 0.065 * alt))           // degrees, one article
+  // one article's radius on the ground follows the camera (smaller when you zoom in); tell the view, it
+  // re-clusters so marks never overlap
+  // ~3-4 px on screen at any altitude, like the 2D map's dots
+  const radius = Math.max(0.012, Math.min(0.6, 0.2 * alt))               // degrees
+  useEffect(() => { onScale?.(radius * 111.2) }, [radius])
+
+  // the look of each disc: size, colour, dimmed or not; set on the existing three.js objects (cheap)
+  const look = useRef({})
+  function paint(m) {
+    const o = m.__obj
+    if (!o) return
+    const { radius: r, semantic: sem, focus: f, lifted } = look.current
+    const s = r * sizeOf(m, sem) * UNITS_PER_DEG
+    o.scale.set(s, s, s)
+    const on = !(f?.size) || f.has(m.key)
+    const [c, a] = rgba(color(m.score, on ? 0.92 : 0.3))
+    o.children[0].material.color = c
+    o.children[0].material.opacity = a
+    o.children[1].material.opacity = on ? 0.95 : 0.3
+    o.position.setLength(100 * (1 + (lifted?.has(m.key) ? 0.009 : m.n > 1 ? 0.0058 : 0.0064)))
+  }
   useEffect(() => {
+    look.current = { radius, semantic, focus, lifted: new Set([selKey, hoverKey]) }
     const globe = g.current
     if (!globe) return
-    const dim = (focus?.size || 0) > 0
-    const lifted = new Set([selKey, hoverKey])
-    globe
-      .pointRadius((m) => {
-        const one = semantic && m.sim != null ? radius * (0.7 + 3 * m.sim) : radius
-        return m.n > 1 ? Math.max(one, radius * (1 + 1.4 * Math.log(m.n))) : one       // bigger than 2D: seen from afar
-      })
-      .pointColor((m) => color(m.score, !dim || focus.has(m.key) ? (m.n > 1 ? 0.85 : 0.95) : 0.28))
-      .pointAltitude((m) => (lifted.has(m.key) ? 0.011 : m.n > 1 ? 0.0062 : 0.0068))
-      .pointsData(marks)
+    if (globe.objectsData() !== marks) globe.objectsData(marks)       // new marks: objects are rebuilt
+    for (const m of marks) paint(m)
+    const raf = requestAnimationFrame(() => { for (const m of marks) paint(m) })   // after globe.gl placed new ones
+    return () => cancelAnimationFrame(raf)
   }, [marks, semantic, radius, focus, selKey, hoverKey])
 
   // a camera flight to fit the filter (Finland always in view); the camera sits a little south, so
-  // Finland is high on the globe and the lines show their curve
+  // Finland is high on the globe and the lines show their curve. Only when the filter changes.
   useEffect(() => {
     const globe = g.current
     if (!globe) return
-    const use = fitSet(marks)
+    const use = fitSet(fitMarks || marks)          // the places, not the zoom-dependent clusters
     const lats = use.map((m) => m.lat).concat([60, 70]), lons = use.map((m) => m.lon).concat([20, 31])
     const lat = (Math.min(...lats) + Math.max(...lats)) / 2, lng = (Math.min(...lons) + Math.max(...lons)) / 2
     const span = Math.max(Math.max(...lats) - Math.min(...lats), (Math.max(...lons) - Math.min(...lons)) * Math.cos(lat * Math.PI / 180))
@@ -114,7 +142,7 @@ export default function Map3D({ marks, lines, focus, selKey, hoverKey, labels, s
     globe.pointOfView({ lat: lat - 6 - span * 0.15, lng, altitude }, 900)
     const t = setTimeout(() => setAlt(altitude), 950)
     return () => clearTimeout(t)
-  }, [marks])
+  }, [fitKey])
 
   // lines: drawn in once (a dash that grows from the source), then solid
   useEffect(() => {
